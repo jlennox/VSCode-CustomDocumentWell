@@ -359,6 +359,18 @@ namespace VSCodeSideTabs
                 {
                     Dom.updateStyle(rightMost.el, "width", -this.sideTabSizePx);
                 }
+
+                // Some of the children elements also must be dynamically
+                // resized.
+                const children = rightMost.el.querySelectorAll(
+                    ".overflow-guard, .editor-scrollable");
+
+                for (let i = 0; i < children.length; ++i)
+                {
+                    Dom.updateStyle(
+                        children[i] as HTMLElement, "width",
+                        -this.sideTabSizePx);
+                }
             }
 
             // If this is ever needed to work with variable side docking,
