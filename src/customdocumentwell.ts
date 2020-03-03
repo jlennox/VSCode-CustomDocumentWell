@@ -1,3 +1,6 @@
+// MIT License
+// Copyright(c) 2020 Joseph Lennox
+
 namespace VSCodeSideTabs
 {
     interface ITabDescription
@@ -34,32 +37,31 @@ namespace VSCodeSideTabs
         public sortByProject: boolean = true;
         public brightenActiveTab: boolean = true;
         public compactTabs: boolean = true;
-        public projectExpr: RegExp = /([^\w]|^)src[/\\][^/\\]+/i;
+        public projectExpr: RegExp = /([^\w]|^)src[/\\].+?[/\\]/i;
 
         private projectColors: {[name: string]: string } = {};
         private projectCount: number = 0;
 
-        public colors: string[] = [
+        private static colors: string[] = [
             "#8DA3C1", "#9D827B", "#C1AA66", "#869A87", "#C97E6C",
             "#617595", "#846A62", "#887E5C", "#607562", "#BA5E41",
             "#3D5573", "#694F47", "#696658", "#425E45" ];
 
-        public extend(options: Partial<IVSCodeSideTabsOptions> | null): void
+        public extend(options: Partial<IVSCodeSideTabsOptions> | null): VSCodeSideTabsOptions
         {
-            if (options == null) return;
+            if (options == null) return this;
 
-            this.sortByFileType = this.sortByFileType ?? options.sortByFileType;
-            this.sortByProject = this.sortByProject ?? options.sortByProject;
-            this.projectExpr = this.projectExpr ?? options.projectExpr;
+            return { ...this, ...options };
         }
 
-        public getColorForProject(projectName: string): string
+        public getColorForProject(projectName: string | null): string
         {
             const key = (projectName || "unknown").toUpperCase();
             const knownColor = this.projectColors[key];
             if (knownColor !== undefined) return knownColor;
 
-            const color = this.colors[this.projectCount++ % this.colors.length];
+            const colors = VSCodeSideTabsOptions.colors;
+            const color = colors[this.projectCount++ % colors.length];
             this.projectColors[key] = color;
             return color;
         }
@@ -69,16 +71,14 @@ namespace VSCodeSideTabs
     {
         private readonly currentTabs: ITabDescription[] = [];
         private realTabsContainers: NodeListOf<HTMLElement>;
+        private newContainerDest: HTMLElement;
         private readonly tabChangeObserver: MutationObserver;
         private readonly newTabContainer: HTMLElement;
         private readonly sideTabSize = "300px";
-        private readonly eventTypes = {
-            mouse: ["click", "mousedown", "mouseup", "contextmenu"],
-            drag: ["drag", "dragend", "dragenter", "dragexit", "dragleave", "dragover", "dragstart", "drop"]
-        };
         private readonly cssRuleRewriter: CssRuleRewrite;
         private readonly options = new VSCodeSideTabsOptions();
         private hasStolenTabContainerInfo: boolean = false;
+        private readonly tabSort: TabSort;
 
         public constructor(
             options: Partial<IVSCodeSideTabsOptions> | null = null
@@ -90,9 +90,11 @@ namespace VSCodeSideTabs
             this.tabChangeObserver = new MutationObserver(() => this.reloadTabs());
 
             this.newTabContainer = document.createElement("div");
-            this.newTabContainer.className = "split-view-view visible hack--vertical-tab-container";
+            this.newTabContainer.className = "hack--vertical-tab-container";
             this.newTabContainer.style.width = this.sideTabSize;
-            this.newTabContainer.style.marginLeft = `-${this.sideTabSize}`;
+            this.newTabContainer.style.position = "absolute";
+            this.newTabContainer.style.top = "0";
+            this.newTabContainer.style.left = `-${this.sideTabSize}`;
             this.newTabContainer.style.overflowY = "auto";
 
             // The borderRightColor is updated later in `stealTabContainerInfo`
@@ -106,62 +108,78 @@ namespace VSCodeSideTabs
                 /(^|,).+?(\.tab(?=\s|:|$))/g,
                 "$1 .hack--vertical-tab-container $2");
 
-            this.options.extend(options);
+            this.options = this.options.extend(options);
+
+            this.tabSort = new TabSort(this.options);
         }
 
-        // Attach and add new elements to the DOM. This should only be called
-        // once.
+        // Attach and add new elements to the DOM.
         public attach(): void
         {
+            // Do not load yet if there's no tabs present.
+            if (document.querySelector(".tabs-container") == null)
+            {
+                setTimeout(() => this.attach(), 100);
+                return;
+            }
+
+            // These selectors feel far more fragile than I'd really like them to be.
+            const container1 = document.querySelector(".split-view-container") as HTMLElement;
+
+            // The new element can not be a direct child of split-view-container
+            // because internally VSCode keeps a child index that is then referenced
+            // back to the DOM, and this will upset the order of DOM nodes.
+            const newContainerDest = (container1.querySelector(".split-view-container") as HTMLElement)
+                .parentElement as HTMLElement;
+
+            newContainerDest.classList.add("hack--container");
+
+            // It's not present enough to load yet. Keep re-entering this method
+            // until success.
+            if (newContainerDest == null ||
+                newContainerDest.firstChild == null)
+            {
+                setTimeout(() => this.attach(), 100);
+                return;
+            }
+
+            this.newContainerDest = newContainerDest;
+
             this.reloadTabContainers();
-
             this.cssRuleRewriter.insertFixedTabCssRules();
+            this.addCustomCssRules();
 
-            const newContainerDestination = document.querySelector(
-                "#workbench\\.parts\\.editor > div > .grid-view-container") as HTMLElement;
-
-            if (newContainerDestination == null) return;
-
-            newContainerDestination.insertBefore(
+            newContainerDest.insertBefore(
                 this.newTabContainer,
-                newContainerDestination.firstChild);
+                newContainerDest.firstChild);
 
             const that = this;
 
             function fixNewContainer()
             {
-                newContainerDestination.style.display = "flex";
-                newContainerDestination.style.flexDirection = "row";
-                newContainerDestination.style.width = `calc(100% - ${that.sideTabSize});`;
-                newContainerDestination.style.marginLeft = that.sideTabSize;
+                newContainerDest.style.marginLeft = that.sideTabSize;
             }
 
             fixNewContainer();
 
+            // Monitor for anyting that may undo `fixNewContainer()`
             const newContainerObserver = new MutationObserver(() => fixNewContainer());
 
             newContainerObserver.observe(
-                newContainerDestination, {
+                newContainerDest, {
                     attributes: true,
                     attributeFilter: ["style"]
                 });
 
-            // This feels more expensive than I'd like to run on every DOM
-            // modification. Profile and potentially fix?
-            function isListNode(node: Node): boolean
-            {
-                if (node.nodeType != Node.ELEMENT_NODE) return false;
-                const domNode = <HTMLElement>node;
-                return domNode.querySelector(".tabs-and-actions-container") != null;
-            }
-
+            // Monitor for tab changes. That's tabs being added or removed.
             const domObserver = new MutationObserver((mutations: MutationRecord[]) =>
             {
                 for (let mut of mutations)
                 {
                     for (let i = 0; i < mut.addedNodes.length; ++i)
                     {
-                        if (isListNode(mut.addedNodes[i])) {
+                        if (VSCodeDom.isTabsContainer(mut.addedNodes[i]))
+                        {
                             this.reloadTabContainers();
                             return;
                         }
@@ -169,7 +187,7 @@ namespace VSCodeSideTabs
 
                     for (let i = 0; i < mut.removedNodes.length; ++i)
                     {
-                        if (isListNode(mut.removedNodes[i]))
+                        if (VSCodeDom.isTabsContainer(mut.removedNodes[i]))
                         {
                             this.reloadTabContainers();
                             return;
@@ -183,7 +201,44 @@ namespace VSCodeSideTabs
                 childList: true
             });
 
-            this.addCustomCssRules();
+            // Observe for layout events. This is the editors moving around.
+            const widthObserver = new MutationObserver((mutations: MutationRecord[]) =>
+            {
+                let doLayout = false;
+                for (let mut of mutations)
+                {
+                    if (!mut.target) continue;
+                    if (mut.target.nodeType != Node.ELEMENT_NODE) continue;
+
+                    const target = mut.target as HTMLElement;
+                    const parent = target.parentElement as HTMLElement;
+
+                    if (!Dom.hasClass(target, "split-view-view") &&
+                        !Dom.hasClass(target, "content"))
+                    {
+                        continue;
+                    }
+
+                    if (Dom.hasClass(parent, "hack--container"))
+                    {
+                        doLayout= true;
+                        break;
+                    }
+
+                    doLayout = true;
+                    break;
+                }
+
+                if (doLayout) this.relayoutEditors();
+            });
+
+            widthObserver.observe(document.body, {
+                attributes: true,
+                attributeFilter: ["style"],
+                subtree: true
+            });
+
+            this.relayoutEditors();
         }
 
         private addCustomCssRules(): void
@@ -218,15 +273,19 @@ namespace VSCodeSideTabs
             }
         }
 
-        // Pass in a '.tabs-and-actions-container' element to steal the coloring
-        // info from, because coloring is done usually by scoped variables.
+        /**
+         * Pass in a '.tabs-and-actions-container' element to steal the coloring
+         * info from.
+         *
+         * Because coloring is done usually by scoped variables it has to be
+         * grabbed at runtime using getComputedStyle.
+         */
         private stealTabContainerInfo(realTabContainer: HTMLElement): void
         {
             if (this.hasStolenTabContainerInfo) return;
             if (!realTabContainer || !realTabContainer.parentElement) return;
 
             const parent = realTabContainer.parentElement;
-
             const backgroundColor = parent.style.backgroundColor;
 
             if (!backgroundColor) return;
@@ -238,6 +297,72 @@ namespace VSCodeSideTabs
             this.newTabContainer.style.backgroundColor = backgroundColor;
 
             this.hasStolenTabContainerInfo = true;
+        }
+
+        /**
+         * Relayout the editors.
+         *
+         * Due to the presence of our vertical tabs the editors are no longer
+         * properly layed out. They will be pushed too far to the right.
+         *
+         * VSCode determines editors widths based on `window.innerWidth`,
+         * https://github.com/microsoft/vscode/blob/7e4c8c983d181cbb56c969662ead5f9a59bfd786/src/vs/base/browser/dom.ts#L414
+         *
+         * One possible workaround to this, would be to `window.innerWidth = 0`
+         * to force this routine to use `document.body.clientWidth` which
+         * could be manipulated using negative left margins.
+         *
+         * After experimentation, the easiest means appeared to be detecting
+         * by DOM mutation events for when their relayout happens and performing
+         * a new relayout immediately after.
+         */
+        private relayoutEditors(): void
+        {
+            const editors = VSCodeDom.getEditorSplitViews();
+            const rightMosts: { [top: string]: {
+                    el: HTMLElement,
+                    left: number
+                } } = {};
+
+            // Determine the right-most editors for each editor row.
+            // The right most editor on a per row basis needs its width reduced
+            // by 300px.
+            for (let editor of editors)
+            {
+                const top = editor.style.top;
+                const left = editor.style.left
+                    ? parseInt(editor.style.left, 10)
+                    : 0;
+
+                const existing = rightMosts[top];
+
+                if (existing && left < existing.left) continue;
+
+                rightMosts[top] = {
+                    el: editor,
+                    left: left
+                };
+            }
+
+            for (let key in rightMosts)
+            {
+                const rightMost = rightMosts[key];
+                Dom.updateStyle(rightMost.el, "width", -300);
+            }
+
+            // If this is ever needed to work with variable side docking,
+            // the placement of the dock can be determined by a class on the
+            // id'd child.
+            const sidebar = VSCodeDom.getSideBarSplitView();
+            if (sidebar.activitybar) Dom.updateStyle(sidebar.activitybar, "left", -300);
+            if (sidebar.sidebar) Dom.updateStyle(sidebar.sidebar, "left", -300);
+
+            // The sashes for non-subcontainered elements must also be adjusted for.
+            const sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
+
+            Dom.visitChildren(sashContainer, el => {
+                if (Dom.hasClass(el, "monaco-sash")) Dom.updateStyle(el, "left", -300);
+            });
         }
 
         private reloadTabContainers(): void
@@ -259,95 +384,6 @@ namespace VSCodeSideTabs
             }
 
             this.reloadTabs();
-        }
-
-        private createDisposableEvent(
-            eventType: string,
-            element: HTMLElement,
-            handler: any): IDisposableFn
-        {
-            element.addEventListener(eventType, handler);
-
-            return () => element.removeEventListener(eventType, handler);
-        }
-
-        private forwardEvent(
-            eventType: string,
-            source: HTMLElement,
-            destination: HTMLElement): IDisposableFn
-        {
-            function getActualDestination(
-                destination: HTMLElement, e: Event): HTMLElement
-            {
-                // This attempts to locate the same child of the destination as
-                // the event was triggered on in our synthetic DOM. This isn't
-                // the most accurate method but it should be good enough.
-                const targetElement = e.target as HTMLElement;
-                if (!targetElement || !targetElement.className)
-                {
-                    return destination;
-                }
-
-                const querySelector = "." + targetElement.className.replace(/ /g, '.');
-                return destination.querySelector<HTMLElement>(querySelector) || destination;
-            }
-
-            if (this.eventTypes.mouse.indexOf(eventType) != -1)
-            {
-                return this.createDisposableEvent(eventType, source, (e: MouseEvent) =>
-                {
-                    const mouseEvent = document.createEvent("MouseEvents");
-                    mouseEvent.initMouseEvent(e.type, true, true,
-                        <Window>e.view, e.detail, e.screenX, e.screenY,
-                        e.clientX, e.clientY, e.ctrlKey, e.altKey,
-                        e.shiftKey, e.metaKey, e.button, e.relatedTarget);
-                    const actualDest = getActualDestination(destination, e);
-
-                    // This feels very much like play stupid games win stupid
-                    // prizes. If these events are synthetically generated
-                    // in real time, then their dispatching causes the "click"
-                    // event to never trigger. The tabs themselves detect clicks
-                    // via mousedown/mouseup. The close button requires "click".
-                    if ((e.type == "mousedown" || e.type == "mouseup") &&
-                        DOM.isChildOf(e.target as HTMLElement, "tab-close"))
-                    {
-                        setTimeout(() => actualDest.dispatchEvent(mouseEvent), 500);
-                    }
-                    else
-                    {
-                        actualDest.dispatchEvent(mouseEvent);
-                    }
-                });
-            }
-
-            if (this.eventTypes.drag.indexOf(eventType) != -1)
-            {
-                return this.createDisposableEvent(eventType, source, (e: DragEvent) =>
-                {
-                    const dragEvent = new DragEvent(e.type, {
-                        altKey: e.altKey, button: e.button, buttons: e.buttons,
-                        clientX: e.clientX, clientY: e.clientY,
-                        ctrlKey: e.ctrlKey, metaKey: e.metaKey,
-                        movementX: e.movementX, movementY: e.movementY,
-                        offsetX: e.offsetX, offsetY: e.offsetY,
-                        pageX: e.pageX, pageY: e.pageY,
-                        relatedTarget: e.relatedTarget,
-                        screenX: e.screenX, screenY: e.screenY,
-                        shiftKey: e.shiftKey, x: e.x, y: e.y,
-                        dataTransfer: e.dataTransfer
-                    } as DragEventInit);
-                    const actualDest = getActualDestination(destination, e);
-                    actualDest.dispatchEvent(dragEvent);
-                });
-            }
-
-            return this.createDisposableEvent(eventType, source, (e: Event) =>
-            {
-                const event = document.createEvent("Event");
-                event.initEvent(e.type, true, true);
-                const actualDest = getActualDestination(destination, e);
-                actualDest.dispatchEvent(event);
-            });
         }
 
         private reloadTabs(): void
@@ -390,14 +426,14 @@ namespace VSCodeSideTabs
 
                 const disposables = [];
 
-                for (let ev of this.eventTypes.mouse)
+                for (let ev of Events.eventTypes.mouse)
                 {
-                    disposables.push(this.forwardEvent(ev, newTab, realTab));
+                    disposables.push(Events.forwardEvent(ev, newTab, realTab));
                 }
 
-                for (let ev of this.eventTypes.drag)
+                for (let ev of Events.eventTypes.drag)
                 {
-                    disposables.push(this.forwardEvent(ev, newTab, realTab));
+                    disposables.push(Events.forwardEvent(ev, newTab, realTab));
                 }
 
                 // Get just the file extension if present.
@@ -414,7 +450,7 @@ namespace VSCodeSideTabs
                     project = projectResult ? projectResult[0] : null;
                 }
 
-                if (this.options.colorByProject && project)
+                if (this.options.colorByProject)
                 {
                     // If the tab is active and brightening is disabled, do
                     // not change the background color so that the active
@@ -438,7 +474,7 @@ namespace VSCodeSideTabs
                 });
             }
 
-            const sorted = newTabs.sort((a, b) => this.tabSort(a, b))
+            const sorted = newTabs.sort((a, b) => this.tabSort.sort(a, b))
 
             for (let tabInfo of sorted)
             {
@@ -446,34 +482,288 @@ namespace VSCodeSideTabs
                 this.currentTabs.push(tabInfo);
             }
         }
+    }
 
-        private tabSort(a: ITabDescription, b: ITabDescription): number
+    class Events
+    {
+        public static readonly eventTypes = {
+            mouse: ["click", "mousedown", "mouseup", "contextmenu"],
+            drag: ["drag", "dragend", "dragenter", "dragexit", "dragleave", "dragover", "dragstart", "drop"]
+        };
+
+        private static createDisposableEvent(
+            eventType: string,
+            element: HTMLElement,
+            handler: any): IDisposableFn
+        {
+            element.addEventListener(eventType, handler);
+
+            return () => element.removeEventListener(eventType, handler);
+        }
+
+        public static forwardEvent(
+            eventType: string,
+            source: HTMLElement,
+            destination: HTMLElement): IDisposableFn
+        {
+            function getActualDestination(
+                destination: HTMLElement, e: Event): HTMLElement
+            {
+                // This attempts to locate the same child of the destination as
+                // the event was triggered on in our synthetic DOM. This isn't
+                // the most accurate method but it should be good enough.
+                const targetElement = e.target as HTMLElement;
+                if (!targetElement || !targetElement.className)
+                {
+                    return destination;
+                }
+
+                const querySelector = "." + targetElement.className.replace(/ /g, '.');
+                return destination.querySelector<HTMLElement>(querySelector) || destination;
+            }
+
+            if (Events.eventTypes.mouse.indexOf(eventType) != -1)
+            {
+                return Events.createDisposableEvent(eventType, source, (e: MouseEvent) =>
+                {
+                    const mouseEvent = document.createEvent("MouseEvents");
+                    mouseEvent.initMouseEvent(e.type, true, true,
+                        <Window>e.view, e.detail, e.screenX, e.screenY,
+                        e.clientX, e.clientY, e.ctrlKey, e.altKey,
+                        e.shiftKey, e.metaKey, e.button, e.relatedTarget);
+                    const actualDest = getActualDestination(destination, e);
+
+                    // This feels very much like play stupid games win stupid
+                    // prizes. If these events are synthetically generated
+                    // in real time, then their dispatching causes the "click"
+                    // event to never trigger. The tabs themselves detect clicks
+                    // via mousedown/mouseup. The close button requires "click".
+                    if ((e.type == "mousedown" || e.type == "mouseup") &&
+                        Dom.isChildOf(e.target as HTMLElement, "tab-close"))
+                    {
+                        setTimeout(() => actualDest.dispatchEvent(mouseEvent), 500);
+                    }
+                    else
+                    {
+                        actualDest.dispatchEvent(mouseEvent);
+                    }
+                });
+            }
+
+            if (Events.eventTypes.drag.indexOf(eventType) != -1)
+            {
+                return Events.createDisposableEvent(eventType, source, (e: DragEvent) =>
+                {
+                    const dragEvent = new DragEvent(e.type, {
+                        altKey: e.altKey, button: e.button, buttons: e.buttons,
+                        clientX: e.clientX, clientY: e.clientY,
+                        ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+                        movementX: e.movementX, movementY: e.movementY,
+                        offsetX: e.offsetX, offsetY: e.offsetY,
+                        pageX: e.pageX, pageY: e.pageY,
+                        relatedTarget: e.relatedTarget,
+                        screenX: e.screenX, screenY: e.screenY,
+                        shiftKey: e.shiftKey, x: e.x, y: e.y,
+                        dataTransfer: e.dataTransfer
+                    } as DragEventInit);
+                    const actualDest = getActualDestination(destination, e);
+                    actualDest.dispatchEvent(dragEvent);
+                });
+            }
+
+            return Events.createDisposableEvent(eventType, source, (e: Event) =>
+            {
+                const event = document.createEvent("Event");
+                event.initEvent(e.type, true, true);
+                const actualDest = getActualDestination(destination, e);
+                actualDest.dispatchEvent(event);
+            });
+        }
+    }
+
+    class VSCodeDom
+    {
+        /**
+         * Returns the ".split-view-view" container for each code editor.
+         */
+        public static getEditorSplitViews(): HTMLElement[]
+        {
+            const results: HTMLElement[] = [];
+            const instances = document.querySelectorAll<HTMLElement>(".editor-instance");
+
+            for (let i = 0; i < instances.length; ++i)
+            {
+                const instance = instances[i];
+                const splitView = Dom.getParentOf(instance, "split-view-view");
+                if (splitView == null) continue;
+                results.push(splitView);
+            }
+
+            return results;
+        }
+
+        public static getSideBarSplitView(): {
+            sidebar: HTMLElement | null
+            activitybar: HTMLElement | null
+        }
+        {
+            const sidebar = document.getElementById("workbench.parts.sidebar");
+            const activitybar = document.getElementById("workbench.parts.activitybar");
+
+            return {
+                sidebar: Dom.getParentOf(sidebar, "split-view-view"),
+                activitybar: Dom.getParentOf(activitybar, "split-view-view")
+            }
+        }
+
+        // This feels more expensive than I'd like to run on every DOM
+        // modification. Profile and potentially fix?
+        public static isTabsContainer(node: Node): boolean
+        {
+            if (node.nodeType != Node.ELEMENT_NODE) return false;
+            const domNode = <HTMLElement>node;
+            return domNode.querySelector(".tabs-and-actions-container") != null;
+        }
+    }
+
+    class Dom
+    {
+        public static isChildOf(el: HTMLElement, klass: string): boolean
+        {
+            return Dom.getParentOf(el, klass) != null;
+        }
+
+        public static getParentOf(el: HTMLElement | null, klass: string): HTMLElement | null
+        {
+            if (el  == null) return null;
+            let curEl: HTMLElement | null = el;
+
+            while (curEl != null)
+            {
+                if (curEl.classList && curEl.classList.contains(klass))
+                {
+                    return curEl;
+                }
+
+                curEl = curEl.parentElement;
+            }
+
+            return null;
+        }
+
+        public static getChildOf(el: HTMLElement | null, klass: string): HTMLElement | null
+        {
+            if (el == null) return null;
+
+            for (let node = el.firstElementChild as HTMLElement;
+                node != null;
+                node = node?.nextElementSibling as HTMLElement)
+            {
+                if (Dom.hasClass(node, klass)) return node;
+            }
+
+            return null;
+        }
+
+        public static getChildrenOf(el: HTMLElement | null, klass: string): HTMLElement[]
+        {
+            const results: HTMLElement[] = [];
+            if (el == null) return results;
+
+            for (let node = el.firstElementChild as HTMLElement;
+                node != null;
+                node = node?.nextElementSibling as HTMLElement)
+                {
+                    if (Dom.hasClass(node, klass)) results.push(node);
+                }
+
+                return results;
+            }
+
+        public static visitChildren(el: HTMLElement | null, visitor: (el: HTMLElement) => void): void
+        {
+            if (el == null) return;
+            for (let node = el.firstElementChild as HTMLElement;
+                node != null;
+                node = node?.nextElementSibling as HTMLElement)
+            {
+                visitor(node);
+            }
+        }
+
+        public static hasClass(el: HTMLElement | null, klass: string): boolean
+        {
+            if (!el) return false;
+            return el.classList && el.classList.contains(klass);
+        }
+
+        /**
+         * If the value has changed, update the numeric style by adjustment.
+         *
+         * The old value is stored to prevent runaway adjustments when it didn't
+         * change. That is, if the code does -300, then VSCode does not change
+         * update the value, and this code runs again, it would be a net -600.
+         */
+        public static updateStyle(
+            el: HTMLElement | null,
+            style: string,
+            adjustment: number): void
+        {
+            if (!el || !el.style) return;
+            const val = (<any>el.style)[style];
+            if (!val || val.length < 3) return;
+
+            // only modify pixel values.
+            if (val[val.length - 2] != "p") return;
+            if (val[val.length - 1] != "x") return;
+
+            const attrKey = "data-hack-last-" + style;
+            const attr = el.getAttribute(attrKey);
+            if (attr && attr == val) return;
+
+            const intValue = parseInt(val, 10);
+            if (isNaN(intValue) || !intValue) return;
+
+            const newVal = `${intValue + adjustment}px`
+
+            el.setAttribute(attrKey, newVal);
+            (<any>el.style)[style] = newVal;
+        }
+    }
+
+    class TabSort
+    {
+        public constructor(private options: VSCodeSideTabsOptions)
+        {
+        }
+
+        public sort(a: ITabDescription, b: ITabDescription): number
         {
             let sortResult = 0;
 
             if (this.options.sortByProject && this.options.projectExpr)
             {
-                sortResult = this.tabProjectSort(a, b);
+                sortResult = TabSort.projectSort(a, b);
                 if (sortResult != 0) return sortResult;
             }
 
             if (this.options.sortByFileType)
             {
-                sortResult = this.tabTypeSort(a, b);
+                sortResult = TabSort.typeSort(a, b);
                 if (sortResult != 0) return sortResult;
             }
 
             return 0;
         }
 
-        private tabTypeSort(a: ITabDescription, b: ITabDescription): number
+        private static typeSort(a: ITabDescription, b: ITabDescription): number
         {
             if (a.tabType == b.tabType) return 0;
             if (a.tabType > b.tabType) return 1;
             return -1;
         }
 
-        private tabProjectSort(a: ITabDescription, b: ITabDescription): number
+        private static projectSort(a: ITabDescription, b: ITabDescription): number
         {
             // Handle both being null, etc.
             if (a.project == b.project) return 0;
@@ -484,26 +774,6 @@ namespace VSCodeSideTabs
             if (a.project == null || b.project == null) return 0;
             if (a.project > b.project) return 1;
             return -1;
-        }
-    }
-
-    class DOM
-    {
-        public static isChildOf(el: HTMLElement, klass: string): boolean
-        {
-            let curEl: HTMLElement | null = el;
-
-            while (curEl != null)
-            {
-                if (curEl.classList && curEl.classList.contains(klass))
-                {
-                    return true;
-                }
-
-                curEl = curEl.parentElement;
-            }
-
-            return false;
         }
     }
 

@@ -1,4 +1,17 @@
 "use strict";
+// MIT License
+// Copyright(c) 2020 Joseph Lennox
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
 var VSCodeSideTabs;
 (function (VSCodeSideTabs_1) {
     var VSCodeSideTabsOptions = /** @class */ (function () {
@@ -8,32 +21,30 @@ var VSCodeSideTabs;
             this.sortByProject = true;
             this.brightenActiveTab = true;
             this.compactTabs = true;
-            this.projectExpr = /([^\w]|^)src[/\\][^/\\]+/i;
+            this.projectExpr = /([^\w]|^)src[/\\].+?[/\\]/i;
             this.projectColors = {};
             this.projectCount = 0;
-            this.colors = [
-                "#8DA3C1", "#9D827B", "#C1AA66", "#869A87", "#C97E6C",
-                "#617595", "#846A62", "#887E5C", "#607562", "#BA5E41",
-                "#3D5573", "#694F47", "#696658", "#425E45"
-            ];
         }
         VSCodeSideTabsOptions.prototype.extend = function (options) {
-            var _a, _b, _c;
             if (options == null)
-                return;
-            this.sortByFileType = (_a = this.sortByFileType, (_a !== null && _a !== void 0 ? _a : options.sortByFileType));
-            this.sortByProject = (_b = this.sortByProject, (_b !== null && _b !== void 0 ? _b : options.sortByProject));
-            this.projectExpr = (_c = this.projectExpr, (_c !== null && _c !== void 0 ? _c : options.projectExpr));
+                return this;
+            return __assign(__assign({}, this), options);
         };
         VSCodeSideTabsOptions.prototype.getColorForProject = function (projectName) {
             var key = (projectName || "unknown").toUpperCase();
             var knownColor = this.projectColors[key];
             if (knownColor !== undefined)
                 return knownColor;
-            var color = this.colors[this.projectCount++ % this.colors.length];
+            var colors = VSCodeSideTabsOptions.colors;
+            var color = colors[this.projectCount++ % colors.length];
             this.projectColors[key] = color;
             return color;
         };
+        VSCodeSideTabsOptions.colors = [
+            "#8DA3C1", "#9D827B", "#C1AA66", "#869A87", "#C97E6C",
+            "#617595", "#846A62", "#887E5C", "#607562", "#BA5E41",
+            "#3D5573", "#694F47", "#696658", "#425E45"
+        ];
         return VSCodeSideTabsOptions;
     }());
     var VSCodeSideTabs = /** @class */ (function () {
@@ -42,68 +53,76 @@ var VSCodeSideTabs;
             if (options === void 0) { options = null; }
             this.currentTabs = [];
             this.sideTabSize = "300px";
-            this.eventTypes = {
-                mouse: ["click", "mousedown", "mouseup", "contextmenu"],
-                drag: ["drag", "dragend", "dragenter", "dragexit", "dragleave", "dragover", "dragstart", "drop"]
-            };
             this.options = new VSCodeSideTabsOptions();
             this.hasStolenTabContainerInfo = false;
             this.realTabsContainers = document.querySelectorAll(".tabs-and-actions-container");
             this.tabChangeObserver = new MutationObserver(function () { return _this.reloadTabs(); });
             this.newTabContainer = document.createElement("div");
-            this.newTabContainer.className = "split-view-view visible hack--vertical-tab-container";
+            this.newTabContainer.className = "hack--vertical-tab-container";
             this.newTabContainer.style.width = this.sideTabSize;
-            this.newTabContainer.style.marginLeft = "-" + this.sideTabSize;
+            this.newTabContainer.style.position = "absolute";
+            this.newTabContainer.style.top = "0";
+            this.newTabContainer.style.left = "-" + this.sideTabSize;
             this.newTabContainer.style.overflowY = "auto";
             // The borderRightColor is updated later in `stealTabContainerInfo`
             this.newTabContainer.style.borderRightWidth = "1px";
             this.newTabContainer.style.borderRightStyle = "solid";
             this.newTabContainer.style.borderRightColor = "var(--title-border-bottom-color)";
             this.cssRuleRewriter = new CssRuleRewrite("", /\.tab(?=\s|:|$)/, /(^|,).+?(\.tab(?=\s|:|$))/g, "$1 .hack--vertical-tab-container $2");
-            this.options.extend(options);
+            this.options = this.options.extend(options);
+            this.tabSort = new TabSort(this.options);
         }
-        // Attach and add new elements to the DOM. This should only be called
-        // once.
+        // Attach and add new elements to the DOM.
         VSCodeSideTabs.prototype.attach = function () {
             var _this = this;
+            // Do not load yet if there's no tabs present.
+            if (document.querySelector(".tabs-container") == null) {
+                setTimeout(function () { return _this.attach(); }, 100);
+                return;
+            }
+            // These selectors feel far more fragile than I'd really like them to be.
+            var container1 = document.querySelector(".split-view-container");
+            // The new element can not be a direct child of split-view-container
+            // because internally VSCode keeps a child index that is then referenced
+            // back to the DOM, and this will upset the order of DOM nodes.
+            var newContainerDest = container1.querySelector(".split-view-container")
+                .parentElement;
+            newContainerDest.classList.add("hack--container");
+            // It's not present enough to load yet. Keep re-entering this method
+            // until success.
+            if (newContainerDest == null ||
+                newContainerDest.firstChild == null) {
+                setTimeout(function () { return _this.attach(); }, 100);
+                return;
+            }
+            this.newContainerDest = newContainerDest;
             this.reloadTabContainers();
             this.cssRuleRewriter.insertFixedTabCssRules();
-            var newContainerDestination = document.querySelector("#workbench\\.parts\\.editor > div > .grid-view-container");
-            if (newContainerDestination == null)
-                return;
-            newContainerDestination.insertBefore(this.newTabContainer, newContainerDestination.firstChild);
+            this.addCustomCssRules();
+            newContainerDest.insertBefore(this.newTabContainer, newContainerDest.firstChild);
             var that = this;
             function fixNewContainer() {
-                newContainerDestination.style.display = "flex";
-                newContainerDestination.style.flexDirection = "row";
-                newContainerDestination.style.width = "calc(100% - " + that.sideTabSize + ");";
-                newContainerDestination.style.marginLeft = that.sideTabSize;
+                newContainerDest.style.marginLeft = that.sideTabSize;
             }
             fixNewContainer();
+            // Monitor for anyting that may undo `fixNewContainer()`
             var newContainerObserver = new MutationObserver(function () { return fixNewContainer(); });
-            newContainerObserver.observe(newContainerDestination, {
+            newContainerObserver.observe(newContainerDest, {
                 attributes: true,
                 attributeFilter: ["style"]
             });
-            // This feels more expensive than I'd like to run on every DOM
-            // modification. Profile and potentially fix?
-            function isListNode(node) {
-                if (node.nodeType != Node.ELEMENT_NODE)
-                    return false;
-                var domNode = node;
-                return domNode.querySelector(".tabs-and-actions-container") != null;
-            }
+            // Monitor for tab changes. That's tabs being added or removed.
             var domObserver = new MutationObserver(function (mutations) {
                 for (var _i = 0, mutations_1 = mutations; _i < mutations_1.length; _i++) {
                     var mut = mutations_1[_i];
                     for (var i = 0; i < mut.addedNodes.length; ++i) {
-                        if (isListNode(mut.addedNodes[i])) {
+                        if (VSCodeDom.isTabsContainer(mut.addedNodes[i])) {
                             _this.reloadTabContainers();
                             return;
                         }
                     }
                     for (var i = 0; i < mut.removedNodes.length; ++i) {
-                        if (isListNode(mut.removedNodes[i])) {
+                        if (VSCodeDom.isTabsContainer(mut.removedNodes[i])) {
                             _this.reloadTabContainers();
                             return;
                         }
@@ -114,7 +133,37 @@ var VSCodeSideTabs;
                 subtree: true,
                 childList: true
             });
-            this.addCustomCssRules();
+            // Observe for layout events. This is the editors moving around.
+            var widthObserver = new MutationObserver(function (mutations) {
+                var doLayout = false;
+                for (var _i = 0, mutations_2 = mutations; _i < mutations_2.length; _i++) {
+                    var mut = mutations_2[_i];
+                    if (!mut.target)
+                        continue;
+                    if (mut.target.nodeType != Node.ELEMENT_NODE)
+                        continue;
+                    var target = mut.target;
+                    var parent_1 = target.parentElement;
+                    if (!Dom.hasClass(target, "split-view-view") &&
+                        !Dom.hasClass(target, "content")) {
+                        continue;
+                    }
+                    if (Dom.hasClass(parent_1, "hack--container")) {
+                        doLayout = true;
+                        break;
+                    }
+                    doLayout = true;
+                    break;
+                }
+                if (doLayout)
+                    _this.relayoutEditors();
+            });
+            widthObserver.observe(document.body, {
+                attributes: true,
+                attributeFilter: ["style"],
+                subtree: true
+            });
+            this.relayoutEditors();
         };
         VSCodeSideTabs.prototype.addCustomCssRules = function () {
             var newCssRules = [];
@@ -128,8 +177,13 @@ var VSCodeSideTabs;
                 CssRuleRewrite.insertCssRules("hack--newCssRules", newCssRules.join("\r\n"));
             }
         };
-        // Pass in a '.tabs-and-actions-container' element to steal the coloring
-        // info from, because coloring is done usually by scoped variables.
+        /**
+         * Pass in a '.tabs-and-actions-container' element to steal the coloring
+         * info from.
+         *
+         * Because coloring is done usually by scoped variables it has to be
+         * grabbed at runtime using getComputedStyle.
+         */
         VSCodeSideTabs.prototype.stealTabContainerInfo = function (realTabContainer) {
             if (this.hasStolenTabContainerInfo)
                 return;
@@ -145,6 +199,62 @@ var VSCodeSideTabs;
             this.newTabContainer.style.backgroundColor = backgroundColor;
             this.hasStolenTabContainerInfo = true;
         };
+        /**
+         * Relayout the editors.
+         *
+         * Due to the presence of our vertical tabs the editors are no longer
+         * properly layed out. They will be pushed too far to the right.
+         *
+         * VSCode determines editors widths based on `window.innerWidth`,
+         * https://github.com/microsoft/vscode/blob/7e4c8c983d181cbb56c969662ead5f9a59bfd786/src/vs/base/browser/dom.ts#L414
+         *
+         * One possible workaround to this, would be to `window.innerWidth = 0`
+         * to force this routine to use `document.body.clientWidth` which
+         * could be manipulated using negative left margins.
+         *
+         * After experimentation, the easiest means appeared to be detecting
+         * by DOM mutation events for when their relayout happens and performing
+         * a new relayout immediately after.
+         */
+        VSCodeSideTabs.prototype.relayoutEditors = function () {
+            var editors = VSCodeDom.getEditorSplitViews();
+            var rightMosts = {};
+            // Determine the right-most editors for each editor row.
+            // The right most editor on a per row basis needs its width reduced
+            // by 300px.
+            for (var _i = 0, editors_1 = editors; _i < editors_1.length; _i++) {
+                var editor = editors_1[_i];
+                var top_1 = editor.style.top;
+                var left = editor.style.left
+                    ? parseInt(editor.style.left, 10)
+                    : 0;
+                var existing = rightMosts[top_1];
+                if (existing && left < existing.left)
+                    continue;
+                rightMosts[top_1] = {
+                    el: editor,
+                    left: left
+                };
+            }
+            for (var key in rightMosts) {
+                var rightMost = rightMosts[key];
+                Dom.updateStyle(rightMost.el, "width", -300);
+            }
+            // If this is ever needed to work with variable side docking,
+            // the placement of the dock can be determined by a class on the
+            // id'd child.
+            var sidebar = VSCodeDom.getSideBarSplitView();
+            if (sidebar.activitybar)
+                Dom.updateStyle(sidebar.activitybar, "left", -300);
+            if (sidebar.sidebar)
+                Dom.updateStyle(sidebar.sidebar, "left", -300);
+            // The sashes for non-subcontainered elements must also be adjusted for.
+            var sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
+            Dom.visitChildren(sashContainer, function (el) {
+                if (Dom.hasClass(el, "monaco-sash"))
+                    Dom.updateStyle(el, "left", -300);
+            });
+        };
         VSCodeSideTabs.prototype.reloadTabContainers = function () {
             this.tabChangeObserver.disconnect();
             this.realTabsContainers = document.querySelectorAll(".tabs-and-actions-container");
@@ -154,66 +264,6 @@ var VSCodeSideTabs;
                 this.tabChangeObserver.observe(realTabContainer, { attributes: true, childList: true, subtree: true });
             }
             this.reloadTabs();
-        };
-        VSCodeSideTabs.prototype.createDisposableEvent = function (eventType, element, handler) {
-            element.addEventListener(eventType, handler);
-            return function () { return element.removeEventListener(eventType, handler); };
-        };
-        VSCodeSideTabs.prototype.forwardEvent = function (eventType, source, destination) {
-            function getActualDestination(destination, e) {
-                // This attempts to locate the same child of the destination as
-                // the event was triggered on in our synthetic DOM. This isn't
-                // the most accurate method but it should be good enough.
-                var targetElement = e.target;
-                if (!targetElement || !targetElement.className) {
-                    return destination;
-                }
-                var querySelector = "." + targetElement.className.replace(/ /g, '.');
-                return destination.querySelector(querySelector) || destination;
-            }
-            if (this.eventTypes.mouse.indexOf(eventType) != -1) {
-                return this.createDisposableEvent(eventType, source, function (e) {
-                    var mouseEvent = document.createEvent("MouseEvents");
-                    mouseEvent.initMouseEvent(e.type, true, true, e.view, e.detail, e.screenX, e.screenY, e.clientX, e.clientY, e.ctrlKey, e.altKey, e.shiftKey, e.metaKey, e.button, e.relatedTarget);
-                    var actualDest = getActualDestination(destination, e);
-                    // This feels very much like play stupid games win stupid
-                    // prizes. If these events are synthetically generated
-                    // in real time, then their dispatching causes the "click"
-                    // event to never trigger. The tabs themselves detect clicks
-                    // via mousedown/mouseup. The close button requires "click".
-                    if ((e.type == "mousedown" || e.type == "mouseup") &&
-                        DOM.isChildOf(e.target, "tab-close")) {
-                        setTimeout(function () { return actualDest.dispatchEvent(mouseEvent); }, 500);
-                    }
-                    else {
-                        actualDest.dispatchEvent(mouseEvent);
-                    }
-                });
-            }
-            if (this.eventTypes.drag.indexOf(eventType) != -1) {
-                return this.createDisposableEvent(eventType, source, function (e) {
-                    var dragEvent = new DragEvent(e.type, {
-                        altKey: e.altKey, button: e.button, buttons: e.buttons,
-                        clientX: e.clientX, clientY: e.clientY,
-                        ctrlKey: e.ctrlKey, metaKey: e.metaKey,
-                        movementX: e.movementX, movementY: e.movementY,
-                        offsetX: e.offsetX, offsetY: e.offsetY,
-                        pageX: e.pageX, pageY: e.pageY,
-                        relatedTarget: e.relatedTarget,
-                        screenX: e.screenX, screenY: e.screenY,
-                        shiftKey: e.shiftKey, x: e.x, y: e.y,
-                        dataTransfer: e.dataTransfer
-                    });
-                    var actualDest = getActualDestination(destination, e);
-                    actualDest.dispatchEvent(dragEvent);
-                });
-            }
-            return this.createDisposableEvent(eventType, source, function (e) {
-                var event = document.createEvent("Event");
-                event.initEvent(e.type, true, true);
-                var actualDest = getActualDestination(destination, e);
-                actualDest.dispatchEvent(event);
-            });
         };
         VSCodeSideTabs.prototype.reloadTabs = function () {
             while (this.currentTabs.length > 0) {
@@ -243,13 +293,13 @@ var VSCodeSideTabs;
                 var isActive = realTab.classList.contains("active");
                 var newTab = realTab.cloneNode(true);
                 var disposables = [];
-                for (var _i = 0, _a = this.eventTypes.mouse; _i < _a.length; _i++) {
+                for (var _i = 0, _a = Events.eventTypes.mouse; _i < _a.length; _i++) {
                     var ev = _a[_i];
-                    disposables.push(this.forwardEvent(ev, newTab, realTab));
+                    disposables.push(Events.forwardEvent(ev, newTab, realTab));
                 }
-                for (var _b = 0, _c = this.eventTypes.drag; _b < _c.length; _b++) {
+                for (var _b = 0, _c = Events.eventTypes.drag; _b < _c.length; _b++) {
                     var ev = _c[_b];
-                    disposables.push(this.forwardEvent(ev, newTab, realTab));
+                    disposables.push(Events.forwardEvent(ev, newTab, realTab));
                 }
                 // Get just the file extension if present.
                 var typeMatch = title.lastIndexOf(".");
@@ -261,7 +311,7 @@ var VSCodeSideTabs;
                     var projectResult = this.options.projectExpr.exec(title);
                     project = projectResult ? projectResult[0] : null;
                 }
-                if (this.options.colorByProject && project) {
+                if (this.options.colorByProject) {
                     // If the tab is active and brightening is disabled, do
                     // not change the background color so that the active
                     // tab color is used instead.
@@ -281,35 +331,229 @@ var VSCodeSideTabs;
                     tabType: tabType.toUpperCase()
                 });
             }
-            var sorted = newTabs.sort(function (a, b) { return _this.tabSort(a, b); });
+            var sorted = newTabs.sort(function (a, b) { return _this.tabSort.sort(a, b); });
             for (var _d = 0, sorted_1 = sorted; _d < sorted_1.length; _d++) {
                 var tabInfo = sorted_1[_d];
                 this.newTabContainer.appendChild(tabInfo.newTab);
                 this.currentTabs.push(tabInfo);
             }
         };
-        VSCodeSideTabs.prototype.tabSort = function (a, b) {
+        return VSCodeSideTabs;
+    }());
+    var Events = /** @class */ (function () {
+        function Events() {
+        }
+        Events.createDisposableEvent = function (eventType, element, handler) {
+            element.addEventListener(eventType, handler);
+            return function () { return element.removeEventListener(eventType, handler); };
+        };
+        Events.forwardEvent = function (eventType, source, destination) {
+            function getActualDestination(destination, e) {
+                // This attempts to locate the same child of the destination as
+                // the event was triggered on in our synthetic DOM. This isn't
+                // the most accurate method but it should be good enough.
+                var targetElement = e.target;
+                if (!targetElement || !targetElement.className) {
+                    return destination;
+                }
+                var querySelector = "." + targetElement.className.replace(/ /g, '.');
+                return destination.querySelector(querySelector) || destination;
+            }
+            if (Events.eventTypes.mouse.indexOf(eventType) != -1) {
+                return Events.createDisposableEvent(eventType, source, function (e) {
+                    var mouseEvent = document.createEvent("MouseEvents");
+                    mouseEvent.initMouseEvent(e.type, true, true, e.view, e.detail, e.screenX, e.screenY, e.clientX, e.clientY, e.ctrlKey, e.altKey, e.shiftKey, e.metaKey, e.button, e.relatedTarget);
+                    var actualDest = getActualDestination(destination, e);
+                    // This feels very much like play stupid games win stupid
+                    // prizes. If these events are synthetically generated
+                    // in real time, then their dispatching causes the "click"
+                    // event to never trigger. The tabs themselves detect clicks
+                    // via mousedown/mouseup. The close button requires "click".
+                    if ((e.type == "mousedown" || e.type == "mouseup") &&
+                        Dom.isChildOf(e.target, "tab-close")) {
+                        setTimeout(function () { return actualDest.dispatchEvent(mouseEvent); }, 500);
+                    }
+                    else {
+                        actualDest.dispatchEvent(mouseEvent);
+                    }
+                });
+            }
+            if (Events.eventTypes.drag.indexOf(eventType) != -1) {
+                return Events.createDisposableEvent(eventType, source, function (e) {
+                    var dragEvent = new DragEvent(e.type, {
+                        altKey: e.altKey, button: e.button, buttons: e.buttons,
+                        clientX: e.clientX, clientY: e.clientY,
+                        ctrlKey: e.ctrlKey, metaKey: e.metaKey,
+                        movementX: e.movementX, movementY: e.movementY,
+                        offsetX: e.offsetX, offsetY: e.offsetY,
+                        pageX: e.pageX, pageY: e.pageY,
+                        relatedTarget: e.relatedTarget,
+                        screenX: e.screenX, screenY: e.screenY,
+                        shiftKey: e.shiftKey, x: e.x, y: e.y,
+                        dataTransfer: e.dataTransfer
+                    });
+                    var actualDest = getActualDestination(destination, e);
+                    actualDest.dispatchEvent(dragEvent);
+                });
+            }
+            return Events.createDisposableEvent(eventType, source, function (e) {
+                var event = document.createEvent("Event");
+                event.initEvent(e.type, true, true);
+                var actualDest = getActualDestination(destination, e);
+                actualDest.dispatchEvent(event);
+            });
+        };
+        Events.eventTypes = {
+            mouse: ["click", "mousedown", "mouseup", "contextmenu"],
+            drag: ["drag", "dragend", "dragenter", "dragexit", "dragleave", "dragover", "dragstart", "drop"]
+        };
+        return Events;
+    }());
+    var VSCodeDom = /** @class */ (function () {
+        function VSCodeDom() {
+        }
+        /**
+         * Returns the ".split-view-view" container for each code editor.
+         */
+        VSCodeDom.getEditorSplitViews = function () {
+            var results = [];
+            var instances = document.querySelectorAll(".editor-instance");
+            for (var i = 0; i < instances.length; ++i) {
+                var instance = instances[i];
+                var splitView = Dom.getParentOf(instance, "split-view-view");
+                if (splitView == null)
+                    continue;
+                results.push(splitView);
+            }
+            return results;
+        };
+        VSCodeDom.getSideBarSplitView = function () {
+            var sidebar = document.getElementById("workbench.parts.sidebar");
+            var activitybar = document.getElementById("workbench.parts.activitybar");
+            return {
+                sidebar: Dom.getParentOf(sidebar, "split-view-view"),
+                activitybar: Dom.getParentOf(activitybar, "split-view-view")
+            };
+        };
+        // This feels more expensive than I'd like to run on every DOM
+        // modification. Profile and potentially fix?
+        VSCodeDom.isTabsContainer = function (node) {
+            if (node.nodeType != Node.ELEMENT_NODE)
+                return false;
+            var domNode = node;
+            return domNode.querySelector(".tabs-and-actions-container") != null;
+        };
+        return VSCodeDom;
+    }());
+    var Dom = /** @class */ (function () {
+        function Dom() {
+        }
+        Dom.isChildOf = function (el, klass) {
+            return Dom.getParentOf(el, klass) != null;
+        };
+        Dom.getParentOf = function (el, klass) {
+            if (el == null)
+                return null;
+            var curEl = el;
+            while (curEl != null) {
+                if (curEl.classList && curEl.classList.contains(klass)) {
+                    return curEl;
+                }
+                curEl = curEl.parentElement;
+            }
+            return null;
+        };
+        Dom.getChildOf = function (el, klass) {
+            var _a;
+            if (el == null)
+                return null;
+            for (var node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+                if (Dom.hasClass(node, klass))
+                    return node;
+            }
+            return null;
+        };
+        Dom.getChildrenOf = function (el, klass) {
+            var _a;
+            var results = [];
+            if (el == null)
+                return results;
+            for (var node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+                if (Dom.hasClass(node, klass))
+                    results.push(node);
+            }
+            return results;
+        };
+        Dom.visitChildren = function (el, visitor) {
+            var _a;
+            if (el == null)
+                return;
+            for (var node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+                visitor(node);
+            }
+        };
+        Dom.hasClass = function (el, klass) {
+            if (!el)
+                return false;
+            return el.classList && el.classList.contains(klass);
+        };
+        /**
+         * If the value has changed, update the numeric style by adjustment.
+         *
+         * The old value is stored to prevent runaway adjustments when it didn't
+         * change. That is, if the code does -300, then VSCode does not change
+         * update the value, and this code runs again, it would be a net -600.
+         */
+        Dom.updateStyle = function (el, style, adjustment) {
+            if (!el || !el.style)
+                return;
+            var val = el.style[style];
+            if (!val || val.length < 3)
+                return;
+            // only modify pixel values.
+            if (val[val.length - 2] != "p")
+                return;
+            if (val[val.length - 1] != "x")
+                return;
+            var attrKey = "data-hack-last-" + style;
+            var attr = el.getAttribute(attrKey);
+            if (attr && attr == val)
+                return;
+            var intValue = parseInt(val, 10);
+            if (isNaN(intValue) || !intValue)
+                return;
+            var newVal = intValue + adjustment + "px";
+            el.setAttribute(attrKey, newVal);
+            el.style[style] = newVal;
+        };
+        return Dom;
+    }());
+    var TabSort = /** @class */ (function () {
+        function TabSort(options) {
+            this.options = options;
+        }
+        TabSort.prototype.sort = function (a, b) {
             var sortResult = 0;
             if (this.options.sortByProject && this.options.projectExpr) {
-                sortResult = this.tabProjectSort(a, b);
+                sortResult = TabSort.projectSort(a, b);
                 if (sortResult != 0)
                     return sortResult;
             }
             if (this.options.sortByFileType) {
-                sortResult = this.tabTypeSort(a, b);
+                sortResult = TabSort.typeSort(a, b);
                 if (sortResult != 0)
                     return sortResult;
             }
             return 0;
         };
-        VSCodeSideTabs.prototype.tabTypeSort = function (a, b) {
+        TabSort.typeSort = function (a, b) {
             if (a.tabType == b.tabType)
                 return 0;
             if (a.tabType > b.tabType)
                 return 1;
             return -1;
         };
-        VSCodeSideTabs.prototype.tabProjectSort = function (a, b) {
+        TabSort.projectSort = function (a, b) {
             // Handle both being null, etc.
             if (a.project == b.project)
                 return 0;
@@ -324,22 +568,7 @@ var VSCodeSideTabs;
                 return 1;
             return -1;
         };
-        return VSCodeSideTabs;
-    }());
-    var DOM = /** @class */ (function () {
-        function DOM() {
-        }
-        DOM.isChildOf = function (el, klass) {
-            var curEl = el;
-            while (curEl != null) {
-                if (curEl.classList && curEl.classList.contains(klass)) {
-                    return true;
-                }
-                curEl = curEl.parentElement;
-            }
-            return false;
-        };
-        return DOM;
+        return TabSort;
     }());
     var CssRuleRewrite = /** @class */ (function () {
         function CssRuleRewrite(id, shouldRewriteRuleExp, rewriteRuleExp, rewriteRuleText) {
