@@ -52,7 +52,9 @@ var VSCodeSideTabs;
             var _this = this;
             if (options === void 0) { options = null; }
             this.currentTabs = [];
-            this.sideTabSize = "300px";
+            this.newContainerDest = null;
+            this.sideTabSizePx = 300;
+            this.sideTabSize = this.sideTabSizePx + "px";
             this.options = new VSCodeSideTabsOptions();
             this.hasStolenTabContainerInfo = false;
             this.realTabsContainers = document.querySelectorAll(".tabs-and-actions-container");
@@ -134,7 +136,7 @@ var VSCodeSideTabs;
                 childList: true
             });
             // Observe for layout events. This is the editors moving around.
-            var widthObserver = new MutationObserver(function (mutations) {
+            var relayoutObserver = new MutationObserver(function (mutations) {
                 var doLayout = false;
                 for (var _i = 0, mutations_2 = mutations; _i < mutations_2.length; _i++) {
                     var mut = mutations_2[_i];
@@ -158,7 +160,7 @@ var VSCodeSideTabs;
                 if (doLayout)
                     _this.relayoutEditors();
             });
-            widthObserver.observe(document.body, {
+            relayoutObserver.observe(document.body, {
                 attributes: true,
                 attributeFilter: ["style"],
                 subtree: true
@@ -217,6 +219,7 @@ var VSCodeSideTabs;
          * a new relayout immediately after.
          */
         VSCodeSideTabs.prototype.relayoutEditors = function () {
+            var _this = this;
             var editors = VSCodeDom.getEditorSplitViews();
             var rightMosts = {};
             // Determine the right-most editors for each editor row.
@@ -238,21 +241,29 @@ var VSCodeSideTabs;
             }
             for (var key in rightMosts) {
                 var rightMost = rightMosts[key];
-                Dom.updateStyle(rightMost.el, "width", -300);
+                // Panels that do not explicity set a width use an inhereted
+                // width of 100%.
+                if (!rightMost.el.style.width) {
+                    rightMost.el.style.width = "calc(100% - " + this.sideTabSize + ")";
+                }
+                else {
+                    Dom.updateStyle(rightMost.el, "width", -this.sideTabSizePx);
+                }
             }
             // If this is ever needed to work with variable side docking,
             // the placement of the dock can be determined by a class on the
             // id'd child.
             var sidebar = VSCodeDom.getSideBarSplitView();
             if (sidebar.activitybar)
-                Dom.updateStyle(sidebar.activitybar, "left", -300);
+                Dom.updateStyle(sidebar.activitybar, "left", -this.sideTabSizePx);
             if (sidebar.sidebar)
-                Dom.updateStyle(sidebar.sidebar, "left", -300);
+                Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
             // The sashes for non-subcontainered elements must also be adjusted for.
             var sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
             Dom.visitChildren(sashContainer, function (el) {
-                if (Dom.hasClass(el, "monaco-sash"))
-                    Dom.updateStyle(el, "left", -300);
+                if (Dom.hasClass(el, "monaco-sash")) {
+                    Dom.updateStyle(el, "left", -_this.sideTabSizePx);
+                }
             });
         };
         VSCodeSideTabs.prototype.reloadTabContainers = function () {

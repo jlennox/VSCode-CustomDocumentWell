@@ -71,10 +71,11 @@ namespace VSCodeSideTabs
     {
         private readonly currentTabs: ITabDescription[] = [];
         private realTabsContainers: NodeListOf<HTMLElement>;
-        private newContainerDest: HTMLElement;
+        private newContainerDest: HTMLElement | null = null;
         private readonly tabChangeObserver: MutationObserver;
         private readonly newTabContainer: HTMLElement;
-        private readonly sideTabSize = "300px";
+        private readonly sideTabSizePx = 300;
+        private readonly sideTabSize = `${this.sideTabSizePx}px`;
         private readonly cssRuleRewriter: CssRuleRewrite;
         private readonly options = new VSCodeSideTabsOptions();
         private hasStolenTabContainerInfo: boolean = false;
@@ -202,7 +203,7 @@ namespace VSCodeSideTabs
             });
 
             // Observe for layout events. This is the editors moving around.
-            const widthObserver = new MutationObserver((mutations: MutationRecord[]) =>
+            const relayoutObserver = new MutationObserver((mutations: MutationRecord[]) =>
             {
                 let doLayout = false;
                 for (let mut of mutations)
@@ -221,7 +222,7 @@ namespace VSCodeSideTabs
 
                     if (Dom.hasClass(parent, "hack--container"))
                     {
-                        doLayout= true;
+                        doLayout = true;
                         break;
                     }
 
@@ -232,7 +233,7 @@ namespace VSCodeSideTabs
                 if (doLayout) this.relayoutEditors();
             });
 
-            widthObserver.observe(document.body, {
+            relayoutObserver.observe(document.body, {
                 attributes: true,
                 attributeFilter: ["style"],
                 subtree: true
@@ -347,21 +348,34 @@ namespace VSCodeSideTabs
             for (let key in rightMosts)
             {
                 const rightMost = rightMosts[key];
-                Dom.updateStyle(rightMost.el, "width", -300);
+
+                // Panels that do not explicity set a width use an inhereted
+                // width of 100%.
+                if (!rightMost.el.style.width)
+                {
+                    rightMost.el.style.width = `calc(100% - ${this.sideTabSize})`;
+                }
+                else
+                {
+                    Dom.updateStyle(rightMost.el, "width", -this.sideTabSizePx);
+                }
             }
 
             // If this is ever needed to work with variable side docking,
             // the placement of the dock can be determined by a class on the
             // id'd child.
             const sidebar = VSCodeDom.getSideBarSplitView();
-            if (sidebar.activitybar) Dom.updateStyle(sidebar.activitybar, "left", -300);
-            if (sidebar.sidebar) Dom.updateStyle(sidebar.sidebar, "left", -300);
+            if (sidebar.activitybar) Dom.updateStyle(sidebar.activitybar, "left", -this.sideTabSizePx);
+            if (sidebar.sidebar) Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
 
             // The sashes for non-subcontainered elements must also be adjusted for.
             const sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
 
             Dom.visitChildren(sashContainer, el => {
-                if (Dom.hasClass(el, "monaco-sash")) Dom.updateStyle(el, "left", -300);
+                if (Dom.hasClass(el, "monaco-sash"))
+                {
+                    Dom.updateStyle(el, "left", -this.sideTabSizePx);
+                }
             });
         }
 
