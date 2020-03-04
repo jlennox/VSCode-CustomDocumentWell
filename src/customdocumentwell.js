@@ -434,7 +434,7 @@ var VSCodeSideTabs;
          */
         VSCodeDom.getEditorSplitViews = function () {
             var results = [];
-            var instances = document.querySelectorAll(".editor-instance");
+            var instances = document.querySelectorAll(".editor-instance,[id=workbench\\.parts\\.panel]");
             for (var i = 0; i < instances.length; ++i) {
                 var instance = instances[i];
                 var splitView = Dom.getParentOf(instance, "split-view-view");

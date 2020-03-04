@@ -615,7 +615,8 @@ namespace VSCodeSideTabs
         public static getEditorSplitViews(): HTMLElement[]
         {
             const results: HTMLElement[] = [];
-            const instances = document.querySelectorAll<HTMLElement>(".editor-instance");
+            const instances = document.querySelectorAll<HTMLElement>(
+                ".editor-instance,[id=workbench\\.parts\\.panel]");
 
             for (let i = 0; i < instances.length; ++i)
             {
