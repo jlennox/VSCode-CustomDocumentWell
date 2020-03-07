@@ -251,7 +251,7 @@ var VSCodeSideTabs;
                 }
                 // Some of the children elements also must be dynamically
                 // resized.
-                var children = rightMost.el.querySelectorAll(".overflow-guard, .editor-scrollable");
+                var children = rightMost.el.querySelectorAll(".overflow-guard, .editor-scrollable, .overlayWidgets");
                 for (var i = 0; i < children.length; ++i) {
                     Dom.updateStyle(children[i], "width", -this.sideTabSizePx);
                 }

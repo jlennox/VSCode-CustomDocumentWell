@@ -363,7 +363,7 @@ namespace VSCodeSideTabs
                 // Some of the children elements also must be dynamically
                 // resized.
                 const children = rightMost.el.querySelectorAll(
-                    ".overflow-guard, .editor-scrollable");
+                    ".overflow-guard, .editor-scrollable, .overlayWidgets");
 
                 for (let i = 0; i < children.length; ++i)
                 {
