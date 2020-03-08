@@ -41,13 +41,13 @@ namespace VSCodeSideTabs
         public debug: boolean = false;
         public projectExpr: RegExp = /([^\w]|^)src[/\\].+?[/\\]/i;
 
-        private projectColors: {[name: string]: string } = {};
+        private projectColors: { [name: string]: string } = {};
         private projectCount: number = 0;
 
         private static colors: string[] = [
             "#8DA3C1", "#9D827B", "#C1AA66", "#869A87", "#C97E6C",
             "#617595", "#846A62", "#887E5C", "#607562", "#BA5E41",
-            "#3D5573", "#694F47", "#696658", "#425E45" ];
+            "#3D5573", "#694F47", "#696658", "#425E45"];
 
         public extend(options: Partial<IVSCodeSideTabsOptions> | null): VSCodeSideTabsOptions
         {
@@ -187,9 +187,9 @@ namespace VSCodeSideTabs
 
             newContainerObserver.observe(
                 newContainerDest, {
-                    attributes: true,
-                    attributeFilter: ["style"]
-                });
+                attributes: true,
+                attributeFilter: ["style"]
+            });
 
             // Monitor for tab changes. That's tabs being added or removed.
             const domObserver = new MutationObserver((mutations: MutationRecord[]) =>
@@ -394,8 +394,8 @@ namespace VSCodeSideTabs
 
             const editors = VSCodeDom.getEditorSplitViews();
             const rightMostEditors: {
-                    [top: string]: { el: HTMLElement, left: number }
-                } = {};
+                [top: string]: { el: HTMLElement, left: number }
+            } = {};
 
             // Determine the right-most editors for each editor row. Rows are
             // determined by editors having a common `top` value.
@@ -457,7 +457,8 @@ namespace VSCodeSideTabs
             // The sashes for non-subcontainered elements must also be adjusted for.
             const sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
 
-            Dom.visitChildren(sashContainer, el => {
+            Dom.visitChildren(sashContainer, el =>
+            {
                 if (Dom.hasClass(el, "monaco-sash"))
                 {
                     Dom.updateStyle(el, "left", -this.sideTabSizePx);
@@ -491,11 +492,11 @@ namespace VSCodeSideTabs
                 // added or removed.
                 this.tabChangeObserver.observe(
                     realTabContainer, {
-                        attributes: true,
-                        attributeFilter: ["aria-selected"],
-                        childList: true,
-                        subtree: true,
-                     });
+                    attributes: true,
+                    attributeFilter: ["aria-selected"],
+                    childList: true,
+                    subtree: true,
+                });
             }
 
             this.reloadTabs();
@@ -591,7 +592,7 @@ namespace VSCodeSideTabs
                 });
             }
 
-            const sorted = newTabs.sort((a, b) => this.tabSort.sort(a, b))
+            const sorted = newTabs.sort((a, b) => this.tabSort.sort(a, b));
 
             for (let tabInfo of sorted)
             {
@@ -728,10 +729,11 @@ namespace VSCodeSideTabs
             return results;
         }
 
-        public static getSideBarSplitView(): {
-            sidebar: HTMLElement | null
-            activitybar: HTMLElement | null
-        }
+        public static getSideBarSplitView():
+            {
+                sidebar: HTMLElement | null
+                activitybar: HTMLElement | null
+            }
         {
             const sidebar = document.getElementById("workbench.parts.sidebar");
             const activitybar = document.getElementById("workbench.parts.activitybar");
@@ -739,7 +741,7 @@ namespace VSCodeSideTabs
             return {
                 sidebar: Dom.getParentOf(sidebar, "split-view-view"),
                 activitybar: Dom.getParentOf(activitybar, "split-view-view")
-            }
+            };
         }
 
         // This feels more expensive than I'd like to run on every DOM
@@ -767,7 +769,7 @@ namespace VSCodeSideTabs
          */
         public static getParentOf(el: HTMLElement | null, klass: string): HTMLElement | null
         {
-            if (el  == null) return null;
+            if (el == null) return null;
             let curEl: HTMLElement | null = el;
 
             while (curEl != null)
@@ -808,12 +810,12 @@ namespace VSCodeSideTabs
             for (let node = el.firstElementChild as HTMLElement;
                 node != null;
                 node = node?.nextElementSibling as HTMLElement)
-                {
-                    if (Dom.hasClass(node, klass)) results.push(node);
-                }
-
-                return results;
+            {
+                if (Dom.hasClass(node, klass)) results.push(node);
             }
+
+            return results;
+        }
 
         public static visitChildren(el: HTMLElement | null, visitor: (el: HTMLElement) => void): void
         {
@@ -859,7 +861,7 @@ namespace VSCodeSideTabs
             const intValue = parseInt(val, 10);
             if (isNaN(intValue) || !intValue) return;
 
-            const newVal = `${intValue + adjustment}px`
+            const newVal = `${intValue + adjustment}px`;
 
             el.setAttribute(attrKey, newVal);
             (<any>el.style)[style] = newVal;
@@ -975,7 +977,8 @@ namespace VSCodeSideTabs
         }
     }
 
-    (function() {
+    (function ()
+    {
         const sideTabs = new VSCodeSideTabs();
         sideTabs.attach();
     })();

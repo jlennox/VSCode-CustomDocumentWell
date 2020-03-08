@@ -23,7 +23,7 @@ Supported functionality:
 
 Alternatively, this can be more easily run non-persistant on a single instance:
 1. Open developer tools in VS Code: `Help` -> `Toggle Developer Tools`
-2. Paste the contents of [customdocumentwell.js](/src/customdocumentwell.js) into the Console. Press enter.
+2. Paste the contents of [customdocumentwell.js](/out/customdocumentwell.js) into the Console. Press enter.
 
 ## Development
 1. Clone
