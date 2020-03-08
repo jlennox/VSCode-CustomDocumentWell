@@ -21,6 +21,7 @@ var VSCodeSideTabs;
             this.sortByProject = true;
             this.brightenActiveTab = true;
             this.compactTabs = true;
+            this.debug = false;
             this.projectExpr = /([^\w]|^)src[/\\].+?[/\\]/i;
             this.projectColors = {};
             this.projectCount = 0;
@@ -57,6 +58,10 @@ var VSCodeSideTabs;
             this.sideTabSize = this.sideTabSizePx + "px";
             this.options = new VSCodeSideTabsOptions();
             this.hasStolenTabContainerInfo = false;
+            this.hasAttached = false;
+            this.requestedAnimationFrame = false;
+            this.nextFramePerformRelayout = false;
+            this.nextFrameReloadTabContainers = false;
             this.realTabsContainers = document.querySelectorAll(".tabs-and-actions-container");
             this.tabChangeObserver = new MutationObserver(function () { return _this.reloadTabs(); });
             this.newTabContainer = document.createElement("div");
@@ -77,26 +82,35 @@ var VSCodeSideTabs;
         // Attach and add new elements to the DOM.
         VSCodeSideTabs.prototype.attach = function () {
             var _this = this;
+            // If the DOM is not yet ready, try attaching again in a moment.
+            if (!this.attachCore()) {
+                setTimeout(function () { return _this.attach(); }, 100);
+            }
+        };
+        VSCodeSideTabs.prototype.attachCore = function () {
+            var _this = this;
+            var _a, _b;
+            if (this.hasAttached)
+                return true;
             // Do not load yet if there's no tabs present.
             if (document.querySelector(".tabs-container") == null) {
-                setTimeout(function () { return _this.attach(); }, 100);
-                return;
+                return false;
             }
-            // These selectors feel far more fragile than I'd really like them to be.
-            var container1 = document.querySelector(".split-view-container");
             // The new element can not be a direct child of split-view-container
-            // because internally VSCode keeps a child index that is then referenced
-            // back to the DOM, and this will upset the order of DOM nodes.
-            var newContainerDest = container1.querySelector(".split-view-container")
-                .parentElement;
-            newContainerDest.classList.add("hack--container");
+            // because internally VSCode keeps a child index that is then
+            // referencedback to the DOM, and this will upset the order of DOM
+            // nodes.
+            // These selectors are too fragile and will likely become a main
+            // point of maintenance.
+            var newContainerDest = (_b = (_a = document
+                .querySelector(".split-view-container")) === null || _a === void 0 ? void 0 : _a.querySelector(".split-view-container")) === null || _b === void 0 ? void 0 : _b.parentElement;
             // It's not present enough to load yet. Keep re-entering this method
             // until success.
             if (newContainerDest == null ||
                 newContainerDest.firstChild == null) {
-                setTimeout(function () { return _this.attach(); }, 100);
-                return;
+                return false;
             }
+            newContainerDest.classList.add("hack--container");
             this.newContainerDest = newContainerDest;
             this.reloadTabContainers();
             this.cssRuleRewriter.insertFixedTabCssRules();
@@ -115,21 +129,42 @@ var VSCodeSideTabs;
             });
             // Monitor for tab changes. That's tabs being added or removed.
             var domObserver = new MutationObserver(function (mutations) {
+                var doTabReload = false;
+                var doRelayout = false;
+                function isDone() {
+                    return doTabReload && doRelayout;
+                }
                 for (var _i = 0, mutations_1 = mutations; _i < mutations_1.length; _i++) {
                     var mut = mutations_1[_i];
-                    for (var i = 0; i < mut.addedNodes.length; ++i) {
-                        if (VSCodeDom.isTabsContainer(mut.addedNodes[i])) {
-                            _this.reloadTabContainers();
-                            return;
+                    if (isDone())
+                        break;
+                    for (var i = 0; i < mut.addedNodes.length && !isDone(); ++i) {
+                        var element = mut.addedNodes[i];
+                        if (element.nodeType != Node.ELEMENT_NODE)
+                            continue;
+                        // This event is required for when two tabs are switched
+                        // between. Otherwise the recreated overflow-guard is
+                        // not fixed.
+                        if (!doTabReload && VSCodeDom.isMonacoEditor(element)) {
+                            doRelayout = true;
+                        }
+                        if (!doRelayout && VSCodeDom.isTabsContainer(element)) {
+                            doTabReload = true;
                         }
                     }
-                    for (var i = 0; i < mut.removedNodes.length; ++i) {
-                        if (VSCodeDom.isTabsContainer(mut.removedNodes[i])) {
-                            _this.reloadTabContainers();
-                            return;
+                    for (var i = 0; i < mut.removedNodes.length && !doRelayout; ++i) {
+                        var element = mut.removedNodes[i];
+                        if (element.nodeType != Node.ELEMENT_NODE)
+                            continue;
+                        if (!doRelayout && VSCodeDom.isTabsContainer(element)) {
+                            doTabReload = true;
                         }
                     }
                 }
+                if (doTabReload)
+                    _this.reloadTabContainers();
+                if (doRelayout)
+                    _this.relayoutEditors();
             });
             domObserver.observe(document.body, {
                 subtree: true,
@@ -137,7 +172,6 @@ var VSCodeSideTabs;
             });
             // Observe for layout events. This is the editors moving around.
             var relayoutObserver = new MutationObserver(function (mutations) {
-                var doLayout = false;
                 for (var _i = 0, mutations_2 = mutations; _i < mutations_2.length; _i++) {
                     var mut = mutations_2[_i];
                     if (!mut.target)
@@ -145,20 +179,16 @@ var VSCodeSideTabs;
                     if (mut.target.nodeType != Node.ELEMENT_NODE)
                         continue;
                     var target = mut.target;
-                    var parent_1 = target.parentElement;
+                    // We have to reduce relayouts as much as possible because
+                    // this is a very spammy event and relayout isn't exactly
+                    // cheap.
                     if (!Dom.hasClass(target, "split-view-view") &&
                         !Dom.hasClass(target, "content")) {
                         continue;
                     }
-                    if (Dom.hasClass(parent_1, "hack--container")) {
-                        doLayout = true;
-                        break;
-                    }
-                    doLayout = true;
-                    break;
-                }
-                if (doLayout)
                     _this.relayoutEditors();
+                    return;
+                }
             });
             relayoutObserver.observe(document.body, {
                 attributes: true,
@@ -166,6 +196,26 @@ var VSCodeSideTabs;
                 subtree: true
             });
             this.relayoutEditors();
+            this.hasAttached = true;
+            return true;
+        };
+        VSCodeSideTabs.prototype.requestAnimationFrame = function () {
+            var _this = this;
+            if (this.requestedAnimationFrame)
+                return;
+            this.requestedAnimationFrame = true;
+            requestAnimationFrame(function () { return _this.animationFrame(); });
+        };
+        VSCodeSideTabs.prototype.animationFrame = function () {
+            if (this.nextFramePerformRelayout) {
+                this.relayoutEditorsCore();
+            }
+            if (this.nextFrameReloadTabContainers) {
+                this.reloadTabContainersCore();
+            }
+            this.requestedAnimationFrame = false;
+            this.nextFrameReloadTabContainers = false;
+            this.nextFramePerformRelayout = false;
         };
         VSCodeSideTabs.prototype.addCustomCssRules = function () {
             var newCssRules = [];
@@ -201,6 +251,10 @@ var VSCodeSideTabs;
             this.newTabContainer.style.backgroundColor = backgroundColor;
             this.hasStolenTabContainerInfo = true;
         };
+        VSCodeSideTabs.prototype.relayoutEditors = function () {
+            this.nextFramePerformRelayout = true;
+            this.requestAnimationFrame();
+        };
         /**
          * Relayout the editors.
          *
@@ -218,11 +272,13 @@ var VSCodeSideTabs;
          * by DOM mutation events for when their relayout happens and performing
          * a new relayout immediately after.
          */
-        VSCodeSideTabs.prototype.relayoutEditors = function () {
+        VSCodeSideTabs.prototype.relayoutEditorsCore = function () {
             var _this = this;
+            this.debug("relayoutEditorsCore()");
             var editors = VSCodeDom.getEditorSplitViews();
-            var rightMosts = {};
-            // Determine the right-most editors for each editor row.
+            var rightMostEditors = {};
+            // Determine the right-most editors for each editor row. Rows are
+            // determined by editors having a common `top` value.
             // The right most editor on a per row basis needs its width reduced
             // by 300px.
             for (var _i = 0, editors_1 = editors; _i < editors_1.length; _i++) {
@@ -231,17 +287,17 @@ var VSCodeSideTabs;
                 var left = editor.style.left
                     ? parseInt(editor.style.left, 10)
                     : 0;
-                var existing = rightMosts[top_1];
+                var existing = rightMostEditors[top_1];
                 if (existing && left < existing.left)
                     continue;
-                rightMosts[top_1] = {
+                rightMostEditors[top_1] = {
                     el: editor,
                     left: left
                 };
             }
-            for (var key in rightMosts) {
-                var rightMost = rightMosts[key];
-                // Panels that do not explicity set a width use an inhereted
+            for (var key in rightMostEditors) {
+                var rightMost = rightMostEditors[key];
+                // Panels that do not explicity set a width use an inherited
                 // width of 100%.
                 if (!rightMost.el.style.width) {
                     rightMost.el.style.width = "calc(100% - " + this.sideTabSize + ")";
@@ -251,6 +307,7 @@ var VSCodeSideTabs;
                 }
                 // Some of the children elements also must be dynamically
                 // resized.
+                // .overlayWidgets is the container that holds the quick search.
                 var children = rightMost.el.querySelectorAll(".overflow-guard, .editor-scrollable, .overlayWidgets");
                 for (var i = 0; i < children.length; ++i) {
                     Dom.updateStyle(children[i], "width", -this.sideTabSizePx);
@@ -260,10 +317,8 @@ var VSCodeSideTabs;
             // the placement of the dock can be determined by a class on the
             // id'd child.
             var sidebar = VSCodeDom.getSideBarSplitView();
-            if (sidebar.activitybar)
-                Dom.updateStyle(sidebar.activitybar, "left", -this.sideTabSizePx);
-            if (sidebar.sidebar)
-                Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
+            Dom.updateStyle(sidebar.activitybar, "left", -this.sideTabSizePx);
+            Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
             // The sashes for non-subcontainered elements must also be adjusted for.
             var sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
             Dom.visitChildren(sashContainer, function (el) {
@@ -273,16 +328,30 @@ var VSCodeSideTabs;
             });
         };
         VSCodeSideTabs.prototype.reloadTabContainers = function () {
+            this.nextFrameReloadTabContainers = true;
+            this.requestAnimationFrame();
+        };
+        VSCodeSideTabs.prototype.reloadTabContainersCore = function () {
+            this.debug("reloadTabContainersCore()");
             this.tabChangeObserver.disconnect();
             this.realTabsContainers = document.querySelectorAll(".tabs-and-actions-container");
             for (var i = 0; i < this.realTabsContainers.length; ++i) {
                 var realTabContainer = this.realTabsContainers[i];
                 this.stealTabContainerInfo(realTabContainer);
-                this.tabChangeObserver.observe(realTabContainer, { attributes: true, childList: true, subtree: true });
+                // The only attribute we care about is when the selection
+                // is changed. `childList` is monitored to tell when tabs are
+                // added or removed.
+                this.tabChangeObserver.observe(realTabContainer, {
+                    attributes: true,
+                    attributeFilter: ["aria-selected"],
+                    childList: true,
+                    subtree: true,
+                });
             }
             this.reloadTabs();
         };
         VSCodeSideTabs.prototype.reloadTabs = function () {
+            this.debug("reloadTabs()");
             while (this.currentTabs.length > 0) {
                 var oldTab = this.currentTabs.pop();
                 if (!oldTab)
@@ -354,6 +423,16 @@ var VSCodeSideTabs;
                 this.newTabContainer.appendChild(tabInfo.newTab);
                 this.currentTabs.push(tabInfo);
             }
+        };
+        VSCodeSideTabs.prototype.debug = function (message) {
+            var optionalParams = [];
+            for (var _i = 1; _i < arguments.length; _i++) {
+                optionalParams[_i - 1] = arguments[_i];
+            }
+            if (!this.options.debug)
+                return;
+            var args = Array.prototype.slice.call(arguments);
+            console.log.apply(console, args);
         };
         return VSCodeSideTabs;
     }());
@@ -454,11 +533,11 @@ var VSCodeSideTabs;
         };
         // This feels more expensive than I'd like to run on every DOM
         // modification. Profile and potentially fix?
-        VSCodeDom.isTabsContainer = function (node) {
-            if (node.nodeType != Node.ELEMENT_NODE)
-                return false;
-            var domNode = node;
-            return domNode.querySelector(".tabs-and-actions-container") != null;
+        VSCodeDom.isTabsContainer = function (el) {
+            return el.querySelector(".tabs-and-actions-container") != null;
+        };
+        VSCodeDom.isMonacoEditor = function (el) {
+            return Dom.hasClass(el, "monaco-editor");
         };
         return VSCodeDom;
     }());
@@ -468,18 +547,23 @@ var VSCodeSideTabs;
         Dom.isChildOf = function (el, klass) {
             return Dom.getParentOf(el, klass) != null;
         };
+        /**
+         * Returns the first parent that matches klass.
+         */
         Dom.getParentOf = function (el, klass) {
             if (el == null)
                 return null;
             var curEl = el;
             while (curEl != null) {
-                if (curEl.classList && curEl.classList.contains(klass)) {
+                if (Dom.hasClass(curEl, klass))
                     return curEl;
-                }
                 curEl = curEl.parentElement;
             }
             return null;
         };
+        /**
+         * Returns the direct child that match klass.
+         */
         Dom.getChildOf = function (el, klass) {
             var _a;
             if (el == null)
@@ -490,6 +574,9 @@ var VSCodeSideTabs;
             }
             return null;
         };
+        /**
+        * Returns all direct child that match klass.
+        */
         Dom.getChildrenOf = function (el, klass) {
             var _a;
             var results = [];

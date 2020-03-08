@@ -27,6 +27,7 @@ namespace VSCodeSideTabs
         sortByProject: boolean;
         brightenActiveTab: boolean;
         compactTabs: boolean;
+        debug: boolean;
         projectExpr: RegExp;
     }
 
@@ -37,6 +38,7 @@ namespace VSCodeSideTabs
         public sortByProject: boolean = true;
         public brightenActiveTab: boolean = true;
         public compactTabs: boolean = true;
+        public debug: boolean = false;
         public projectExpr: RegExp = /([^\w]|^)src[/\\].+?[/\\]/i;
 
         private projectColors: {[name: string]: string } = {};
@@ -80,6 +82,10 @@ namespace VSCodeSideTabs
         private readonly options = new VSCodeSideTabsOptions();
         private hasStolenTabContainerInfo: boolean = false;
         private readonly tabSort: TabSort;
+        private hasAttached: boolean = false;
+        private requestedAnimationFrame: boolean = false;
+        private nextFramePerformRelayout: boolean = false;
+        private nextFrameReloadTabContainers: boolean = false;
 
         public constructor(
             options: Partial<IVSCodeSideTabsOptions> | null = null
@@ -88,7 +94,8 @@ namespace VSCodeSideTabs
             this.realTabsContainers = document.querySelectorAll<HTMLElement>(
                 ".tabs-and-actions-container");
 
-            this.tabChangeObserver = new MutationObserver(() => this.reloadTabs());
+            this.tabChangeObserver = new MutationObserver(
+                () => this.reloadTabs());
 
             this.newTabContainer = document.createElement("div");
             this.newTabContainer.className = "hack--vertical-tab-container";
@@ -117,32 +124,43 @@ namespace VSCodeSideTabs
         // Attach and add new elements to the DOM.
         public attach(): void
         {
+            // If the DOM is not yet ready, try attaching again in a moment.
+            if (!this.attachCore())
+            {
+                setTimeout(() => this.attach(), 100);
+            }
+        }
+
+        private attachCore(): boolean
+        {
+            if (this.hasAttached) return true;
+
             // Do not load yet if there's no tabs present.
             if (document.querySelector(".tabs-container") == null)
             {
-                setTimeout(() => this.attach(), 100);
-                return;
+                return false;
             }
 
-            // These selectors feel far more fragile than I'd really like them to be.
-            const container1 = document.querySelector(".split-view-container") as HTMLElement;
-
             // The new element can not be a direct child of split-view-container
-            // because internally VSCode keeps a child index that is then referenced
-            // back to the DOM, and this will upset the order of DOM nodes.
-            const newContainerDest = (container1.querySelector(".split-view-container") as HTMLElement)
-                .parentElement as HTMLElement;
-
-            newContainerDest.classList.add("hack--container");
+            // because internally VSCode keeps a child index that is then
+            // referencedback to the DOM, and this will upset the order of DOM
+            // nodes.
+            // These selectors are too fragile and will likely become a main
+            // point of maintenance.
+            const newContainerDest = document
+                .querySelector<HTMLElement>(".split-view-container")
+                ?.querySelector<HTMLElement>(".split-view-container")
+                ?.parentElement as HTMLElement;
 
             // It's not present enough to load yet. Keep re-entering this method
             // until success.
             if (newContainerDest == null ||
                 newContainerDest.firstChild == null)
             {
-                setTimeout(() => this.attach(), 100);
-                return;
+                return false;
             }
+
+            newContainerDest.classList.add("hack--container");
 
             this.newContainerDest = newContainerDest;
 
@@ -164,7 +182,8 @@ namespace VSCodeSideTabs
             fixNewContainer();
 
             // Monitor for anyting that may undo `fixNewContainer()`
-            const newContainerObserver = new MutationObserver(() => fixNewContainer());
+            const newContainerObserver = new MutationObserver(
+                () => fixNewContainer());
 
             newContainerObserver.observe(
                 newContainerDest, {
@@ -175,26 +194,51 @@ namespace VSCodeSideTabs
             // Monitor for tab changes. That's tabs being added or removed.
             const domObserver = new MutationObserver((mutations: MutationRecord[]) =>
             {
+                let doTabReload = false;
+                let doRelayout = false;
+
+                function isDone(): boolean
+                {
+                    return doTabReload && doRelayout;
+                }
+
                 for (let mut of mutations)
                 {
-                    for (let i = 0; i < mut.addedNodes.length; ++i)
+                    if (isDone()) break;
+
+                    for (let i = 0; i < mut.addedNodes.length && !isDone(); ++i)
                     {
-                        if (VSCodeDom.isTabsContainer(mut.addedNodes[i]))
+                        const element = mut.addedNodes[i] as HTMLElement;
+                        if (element.nodeType != Node.ELEMENT_NODE) continue;
+
+                        // This event is required for when two tabs are switched
+                        // between. Otherwise the recreated overflow-guard is
+                        // not fixed.
+                        if (!doTabReload && VSCodeDom.isMonacoEditor(element))
                         {
-                            this.reloadTabContainers();
-                            return;
+                            doRelayout = true;
+                        }
+
+                        if (!doRelayout && VSCodeDom.isTabsContainer(element))
+                        {
+                            doTabReload = true;
                         }
                     }
 
-                    for (let i = 0; i < mut.removedNodes.length; ++i)
+                    for (let i = 0; i < mut.removedNodes.length && !doRelayout; ++i)
                     {
-                        if (VSCodeDom.isTabsContainer(mut.removedNodes[i]))
+                        const element = mut.removedNodes[i] as HTMLElement;
+                        if (element.nodeType != Node.ELEMENT_NODE) continue;
+
+                        if (!doRelayout && VSCodeDom.isTabsContainer(element))
                         {
-                            this.reloadTabContainers();
-                            return;
+                            doTabReload = true;
                         }
                     }
                 }
+
+                if (doTabReload) this.reloadTabContainers();
+                if (doRelayout) this.relayoutEditors();
             });
 
             domObserver.observe(document.body, {
@@ -205,32 +249,25 @@ namespace VSCodeSideTabs
             // Observe for layout events. This is the editors moving around.
             const relayoutObserver = new MutationObserver((mutations: MutationRecord[]) =>
             {
-                let doLayout = false;
                 for (let mut of mutations)
                 {
                     if (!mut.target) continue;
                     if (mut.target.nodeType != Node.ELEMENT_NODE) continue;
 
                     const target = mut.target as HTMLElement;
-                    const parent = target.parentElement as HTMLElement;
 
+                    // We have to reduce relayouts as much as possible because
+                    // this is a very spammy event and relayout isn't exactly
+                    // cheap.
                     if (!Dom.hasClass(target, "split-view-view") &&
                         !Dom.hasClass(target, "content"))
                     {
                         continue;
                     }
 
-                    if (Dom.hasClass(parent, "hack--container"))
-                    {
-                        doLayout = true;
-                        break;
-                    }
-
-                    doLayout = true;
-                    break;
+                    this.relayoutEditors();
+                    return;
                 }
-
-                if (doLayout) this.relayoutEditors();
             });
 
             relayoutObserver.observe(document.body, {
@@ -240,6 +277,34 @@ namespace VSCodeSideTabs
             });
 
             this.relayoutEditors();
+
+            this.hasAttached = true;
+            return true;
+        }
+
+        private requestAnimationFrame(): void
+        {
+            if (this.requestedAnimationFrame) return;
+
+            this.requestedAnimationFrame = true;
+            requestAnimationFrame(() => this.animationFrame());
+        }
+
+        private animationFrame(): void
+        {
+            if (this.nextFramePerformRelayout)
+            {
+                this.relayoutEditorsCore();
+            }
+
+            if (this.nextFrameReloadTabContainers)
+            {
+                this.reloadTabContainersCore();
+            }
+
+            this.requestedAnimationFrame = false;
+            this.nextFrameReloadTabContainers = false;
+            this.nextFramePerformRelayout = false;
         }
 
         private addCustomCssRules(): void
@@ -300,6 +365,12 @@ namespace VSCodeSideTabs
             this.hasStolenTabContainerInfo = true;
         }
 
+        private relayoutEditors(): void
+        {
+            this.nextFramePerformRelayout = true;
+            this.requestAnimationFrame();
+        }
+
         /**
          * Relayout the editors.
          *
@@ -317,15 +388,17 @@ namespace VSCodeSideTabs
          * by DOM mutation events for when their relayout happens and performing
          * a new relayout immediately after.
          */
-        private relayoutEditors(): void
+        private relayoutEditorsCore(): void
         {
-            const editors = VSCodeDom.getEditorSplitViews();
-            const rightMosts: { [top: string]: {
-                    el: HTMLElement,
-                    left: number
-                } } = {};
+            this.debug("relayoutEditorsCore()");
 
-            // Determine the right-most editors for each editor row.
+            const editors = VSCodeDom.getEditorSplitViews();
+            const rightMostEditors: {
+                    [top: string]: { el: HTMLElement, left: number }
+                } = {};
+
+            // Determine the right-most editors for each editor row. Rows are
+            // determined by editors having a common `top` value.
             // The right most editor on a per row basis needs its width reduced
             // by 300px.
             for (let editor of editors)
@@ -335,21 +408,21 @@ namespace VSCodeSideTabs
                     ? parseInt(editor.style.left, 10)
                     : 0;
 
-                const existing = rightMosts[top];
+                const existing = rightMostEditors[top];
 
                 if (existing && left < existing.left) continue;
 
-                rightMosts[top] = {
+                rightMostEditors[top] = {
                     el: editor,
                     left: left
                 };
             }
 
-            for (let key in rightMosts)
+            for (let key in rightMostEditors)
             {
-                const rightMost = rightMosts[key];
+                const rightMost = rightMostEditors[key];
 
-                // Panels that do not explicity set a width use an inhereted
+                // Panels that do not explicity set a width use an inherited
                 // width of 100%.
                 if (!rightMost.el.style.width)
                 {
@@ -362,6 +435,7 @@ namespace VSCodeSideTabs
 
                 // Some of the children elements also must be dynamically
                 // resized.
+                // .overlayWidgets is the container that holds the quick search.
                 const children = rightMost.el.querySelectorAll(
                     ".overflow-guard, .editor-scrollable, .overlayWidgets");
 
@@ -377,8 +451,8 @@ namespace VSCodeSideTabs
             // the placement of the dock can be determined by a class on the
             // id'd child.
             const sidebar = VSCodeDom.getSideBarSplitView();
-            if (sidebar.activitybar) Dom.updateStyle(sidebar.activitybar, "left", -this.sideTabSizePx);
-            if (sidebar.sidebar) Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
+            Dom.updateStyle(sidebar.activitybar, "left", -this.sideTabSizePx);
+            Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
 
             // The sashes for non-subcontainered elements must also be adjusted for.
             const sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
@@ -393,6 +467,14 @@ namespace VSCodeSideTabs
 
         private reloadTabContainers(): void
         {
+            this.nextFrameReloadTabContainers = true;
+            this.requestAnimationFrame();
+        }
+
+        private reloadTabContainersCore(): void
+        {
+            this.debug("reloadTabContainersCore()");
+
             this.tabChangeObserver.disconnect();
 
             this.realTabsContainers = document.querySelectorAll<HTMLElement>(
@@ -404,9 +486,16 @@ namespace VSCodeSideTabs
 
                 this.stealTabContainerInfo(realTabContainer);
 
+                // The only attribute we care about is when the selection
+                // is changed. `childList` is monitored to tell when tabs are
+                // added or removed.
                 this.tabChangeObserver.observe(
-                    realTabContainer,
-                    { attributes: true, childList: true, subtree: true });
+                    realTabContainer, {
+                        attributes: true,
+                        attributeFilter: ["aria-selected"],
+                        childList: true,
+                        subtree: true,
+                     });
             }
 
             this.reloadTabs();
@@ -414,6 +503,8 @@ namespace VSCodeSideTabs
 
         private reloadTabs(): void
         {
+            this.debug("reloadTabs()");
+
             while (this.currentTabs.length > 0)
             {
                 const oldTab = this.currentTabs.pop();
@@ -507,6 +598,14 @@ namespace VSCodeSideTabs
                 this.newTabContainer.appendChild(tabInfo.newTab);
                 this.currentTabs.push(tabInfo);
             }
+        }
+
+        private debug(message?: any, ...optionalParams: any[]): void
+        {
+            if (!this.options.debug) return;
+
+            const args = Array.prototype.slice.call(arguments);
+            console.log.apply(console, args as any);
         }
     }
 
@@ -645,11 +744,14 @@ namespace VSCodeSideTabs
 
         // This feels more expensive than I'd like to run on every DOM
         // modification. Profile and potentially fix?
-        public static isTabsContainer(node: Node): boolean
+        public static isTabsContainer(el: HTMLElement): boolean
         {
-            if (node.nodeType != Node.ELEMENT_NODE) return false;
-            const domNode = <HTMLElement>node;
-            return domNode.querySelector(".tabs-and-actions-container") != null;
+            return el.querySelector(".tabs-and-actions-container") != null;
+        }
+
+        public static isMonacoEditor(el: HTMLElement): boolean
+        {
+            return Dom.hasClass(el, "monaco-editor");
         }
     }
 
@@ -660,6 +762,9 @@ namespace VSCodeSideTabs
             return Dom.getParentOf(el, klass) != null;
         }
 
+        /**
+         * Returns the first parent that matches klass.
+         */
         public static getParentOf(el: HTMLElement | null, klass: string): HTMLElement | null
         {
             if (el  == null) return null;
@@ -667,10 +772,7 @@ namespace VSCodeSideTabs
 
             while (curEl != null)
             {
-                if (curEl.classList && curEl.classList.contains(klass))
-                {
-                    return curEl;
-                }
+                if (Dom.hasClass(curEl, klass)) return curEl;
 
                 curEl = curEl.parentElement;
             }
@@ -678,6 +780,9 @@ namespace VSCodeSideTabs
             return null;
         }
 
+        /**
+         * Returns the direct child that match klass.
+         */
         public static getChildOf(el: HTMLElement | null, klass: string): HTMLElement | null
         {
             if (el == null) return null;
@@ -692,6 +797,9 @@ namespace VSCodeSideTabs
             return null;
         }
 
+        /**
+        * Returns all direct child that match klass.
+        */
         public static getChildrenOf(el: HTMLElement | null, klass: string): HTMLElement[]
         {
             const results: HTMLElement[] = [];
