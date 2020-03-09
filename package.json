@@ -14,7 +14,7 @@
 	"bugs": {
 		"url": "https://github.com/jlennox/VSCode-CustomDocumentWell/issues"
 	},
-	"version": "0.0.1",
+	"version": "1.0.3",
 	"engines": {
 		"vscode": "^1.42.0"
 	},
