@@ -29,15 +29,15 @@
 		"commands": [
 			{
 				"command": "extension.installCustomDocumentWell",
-				"title": "Install Custom Document Well."
+				"title": "Install Custom Document Well"
 			},
 			{
 				"command": "extension.uninstallCustomDocumentWell",
-				"title": "Uninstall Custom Document Well."
+				"title": "Uninstall Custom Document Well"
 			},
 			{
 				"command": "extension.updateCustomDocumentWell",
-				"title": "Update Custom Document Well and its settings. Required after extension update or setting changes."
+				"title": "Update Custom Document Well"
 			}
 		],
 		"configuration": {
