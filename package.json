@@ -1,6 +1,6 @@
 {
 	"name": "custom-document-well",
-	"displayName": "custom-document-well",
+	"displayName": "Custom Document Well",
 	"description": "Custom Document Well for VS Code",
 	"author": {
 		"email": "jlennox@gmail.com",
@@ -14,7 +14,8 @@
 	"bugs": {
 		"url": "https://github.com/jlennox/VSCode-CustomDocumentWell/issues"
 	},
-	"version": "1.0.3",
+	"version": "1.0.5",
+	"publisher": "jlennox0115",
 	"engines": {
 		"vscode": "^1.42.0"
 	},

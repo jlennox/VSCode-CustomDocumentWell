@@ -537,10 +537,9 @@ var VSCodeSideTabs;
          * Returns the direct child that match klass.
          */
         static getChildOf(el, klass) {
-            var _a;
             if (el == null)
                 return null;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     return node;
             }
@@ -550,21 +549,19 @@ var VSCodeSideTabs;
         * Returns all direct child that match klass.
         */
         static getChildrenOf(el, klass) {
-            var _a;
             const results = [];
             if (el == null)
                 return results;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     results.push(node);
             }
             return results;
         }
         static visitChildren(el, visitor) {
-            var _a;
             if (el == null)
                 return;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 visitor(node);
             }
         }

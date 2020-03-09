@@ -9,6 +9,8 @@ The standard VS Code extension API does not support this style of modification,
 this is instead done by direct DOM manipulation. This causes **an additional
 installation step to be required.** See [Installation](#installation).
 
+**Note:** Only the side bar being on the right is supported for the time being.
+
 Supported functionality:
 * Vertical tabs (left side only at present).
 * Sort and colorize by project.
