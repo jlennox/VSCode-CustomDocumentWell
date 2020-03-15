@@ -12,14 +12,26 @@ var VSCodeSideTabs;
             this.brightenActiveTab = true;
             this.compactTabs = true;
             this.debug = false;
-            this.projectExpr = /(?:[^\w]|^)src[/\\].+?[/\\]/i;
+            this.projectExpr = "(?:[^\\w]|^)src[/\\\\].+?[/\\\\]";
             this.projectColors = {};
             this.projectCount = 0;
+            this.projectExprActual = null;
         }
         extend(options) {
-            if (options == null)
-                return this;
-            return Object.assign(Object.assign({}, this), options);
+            var _a, _b, _c, _d, _e, _f, _g, _h;
+            if (options) {
+                this.showPin = (_a = options.showPin) !== null && _a !== void 0 ? _a : this.showPin;
+                this.colorByProject = (_b = options.colorByProject) !== null && _b !== void 0 ? _b : this.colorByProject;
+                this.sortByFileType = (_c = options.sortByFileType) !== null && _c !== void 0 ? _c : this.sortByFileType;
+                this.sortByProject = (_d = options.sortByProject) !== null && _d !== void 0 ? _d : this.sortByProject;
+                this.brightenActiveTab = (_e = options.brightenActiveTab) !== null && _e !== void 0 ? _e : this.brightenActiveTab;
+                this.compactTabs = (_f = options.compactTabs) !== null && _f !== void 0 ? _f : this.compactTabs;
+                this.debug = (_g = options.debug) !== null && _g !== void 0 ? _g : this.debug;
+                this.projectExpr = (_h = options.projectExpr) !== null && _h !== void 0 ? _h : this.projectExpr;
+            }
+            if (this.projectExpr) {
+                this.projectExprActual = new RegExp(this.projectExpr, "i");
+            }
         }
         getColorForProject(projectName) {
             const key = (projectName || "unknown").toUpperCase();
@@ -64,8 +76,9 @@ var VSCodeSideTabs;
             this.newTabContainer.style.borderRightStyle = "solid";
             this.newTabContainer.style.borderRightColor = "var(--title-border-bottom-color)";
             this.cssRuleRewriter = new CssRuleRewrite("", /\.tab(?=\s|:|$)/, /(^|,).+?(\.tab(?=\s|:|$))/g, "$1 .hack--vertical-tab-container $2");
-            this.options = this.options.extend(options);
+            this.options.extend(options);
             this.tabSort = new TabSort(this.options);
+            this.debug("options", this.options);
         }
         // Attach and add new elements to the DOM.
         attach() {
@@ -389,9 +402,11 @@ var VSCodeSideTabs;
             return tabInfo.path in this.pinned;
         }
         reloadTabsForContainer(container) {
-            var _a, _b, _c;
+            var _a;
             const tabs = container.querySelectorAll(".tab");
             const newTabs = [];
+            const options = this.options;
+            const projectExpr = options.projectExprActual;
             for (let i = 0; i < tabs.length; ++i) {
                 const realTab = tabs[i];
                 const text = realTab.textContent;
@@ -411,16 +426,17 @@ var VSCodeSideTabs;
                     ? "unknown"
                     : title.substr(typeMatch + 1);
                 let project = null;
-                if (this.options.colorByProject || this.options.sortByProject) {
-                    const projectResult = this.options.projectExpr.exec(title);
+                if ((options.colorByProject || options.sortByProject) &&
+                    projectExpr != null) {
+                    const projectResult = projectExpr.exec(title);
                     project = projectResult ? projectResult[0] : null;
                 }
-                if (this.options.colorByProject) {
+                if (options.colorByProject) {
                     // If the tab is active and brightening is disabled, do
                     // not change the background color so that the active
                     // tab color is used instead.
                     if (!isActive || this.options.brightenActiveTab) {
-                        newTab.style.backgroundColor = this.options
+                        newTab.style.backgroundColor = options
                             .getColorForProject(project);
                     }
                 }
@@ -434,7 +450,7 @@ var VSCodeSideTabs;
                     disposables: disposables,
                     tabType: tabType.toUpperCase()
                 };
-                if (this.options.showPin) {
+                if (options.showPin) {
                     const tabClose = newTab.querySelector(".tab-close");
                     const pinTab = document.createElement("div");
                     pinTab.style.margin = "auto 0";
@@ -447,7 +463,7 @@ var VSCodeSideTabs;
                                 </li>
                             </ul>
                         </div>`;
-                    disposables.push(Events.createDisposableEvent("mouseup", (_a = pinTab) === null || _a === void 0 ? void 0 : _a.querySelector("a"), () => {
+                    disposables.push(Events.createDisposableEvent("mouseup", pinTab === null || pinTab === void 0 ? void 0 : pinTab.querySelector("a"), () => {
                         if (tabInfo.path in this.pinned) {
                             delete this.pinned[tabInfo.path];
                         }
@@ -456,7 +472,7 @@ var VSCodeSideTabs;
                         }
                         this.reloadTabContainers();
                     }));
-                    (_c = (_b = tabClose) === null || _b === void 0 ? void 0 : _b.parentElement) === null || _c === void 0 ? void 0 : _c.insertBefore(pinTab, tabClose);
+                    (_a = tabClose === null || tabClose === void 0 ? void 0 : tabClose.parentElement) === null || _a === void 0 ? void 0 : _a.insertBefore(pinTab, tabClose);
                 }
                 newTabs.push(tabInfo);
             }
@@ -620,10 +636,9 @@ var VSCodeSideTabs;
          * Returns the direct child that match klass.
          */
         static getChild(el, klass) {
-            var _a;
             if (el == null)
                 return null;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     return node;
             }
@@ -633,21 +648,19 @@ var VSCodeSideTabs;
         * Returns all direct child that match klass.
         */
         static getChildren(el, klass) {
-            var _a;
             const results = [];
             if (el == null)
                 return results;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     results.push(node);
             }
             return results;
         }
         static visitChildren(el, visitor) {
-            var _a;
             if (el == null)
                 return;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 visitor(node);
             }
         }
@@ -772,7 +785,17 @@ var VSCodeSideTabs;
         }
     }
     (function () {
-        const sideTabs = new VSCodeSideTabs();
+        const settingsEl = document.getElementById("__hack_cdw_config");
+        let settings;
+        try {
+            settings = settingsEl && settingsEl.innerText
+                ? JSON.parse(decodeURI(settingsEl.innerText))
+                : null;
+        }
+        catch (e) {
+            console.error("CDW: error parsing settings", e);
+        }
+        const sideTabs = new VSCodeSideTabs(settings);
         sideTabs.attach();
     })();
 })(VSCodeSideTabs || (VSCodeSideTabs = {}));

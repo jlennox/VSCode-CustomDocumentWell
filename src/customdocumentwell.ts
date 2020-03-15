@@ -1,6 +1,11 @@
 // MIT License
 // Copyright(c) 2020 Joseph Lennox
 
+interface Window
+{
+    __hack_cdw_config: VSCodeSideTabs.IVSCodeSideTabsOptions;
+}
+
 namespace VSCodeSideTabs
 {
     interface ITabDescription
@@ -20,7 +25,7 @@ namespace VSCodeSideTabs
         (): void;
     }
 
-    interface IVSCodeSideTabsOptions
+    export interface IVSCodeSideTabsOptions
     {
         showPin: boolean;
         colorByProject: boolean;
@@ -29,7 +34,7 @@ namespace VSCodeSideTabs
         brightenActiveTab: boolean;
         compactTabs: boolean;
         debug: boolean;
-        projectExpr: RegExp;
+        projectExpr: string;
     }
 
     class VSCodeSideTabsOptions implements IVSCodeSideTabsOptions
@@ -41,21 +46,36 @@ namespace VSCodeSideTabs
         public brightenActiveTab: boolean = true;
         public compactTabs: boolean = true;
         public debug: boolean = false;
-        public projectExpr: RegExp = /(?:[^\w]|^)src[/\\].+?[/\\]/i;
+        public projectExpr: string = "(?:[^\\w]|^)src[/\\\\].+?[/\\\\]";
 
         private projectColors: { [name: string]: string } = {};
         private projectCount: number = 0;
+        public projectExprActual: RegExp | null = null;
 
         private static colors: string[] = [
             "#8DA3C1", "#9D827B", "#C1AA66", "#869A87", "#C97E6C",
             "#617595", "#846A62", "#887E5C", "#607562", "#BA5E41",
             "#3D5573", "#694F47", "#696658", "#425E45"];
 
-        public extend(options: Partial<IVSCodeSideTabsOptions> | null): VSCodeSideTabsOptions
+        public extend(options: Partial<IVSCodeSideTabsOptions> | null): void
         {
-            if (options == null) return this;
+            if (options)
+            {
+                this.showPin = options.showPin ?? this.showPin;
+                this.colorByProject = options.colorByProject ?? this.colorByProject;
+                this.sortByFileType = options.sortByFileType ?? this.sortByFileType;
+                this.sortByProject = options.sortByProject ?? this.sortByProject;
+                this.brightenActiveTab = options.brightenActiveTab ?? this.brightenActiveTab;
+                this.compactTabs = options.compactTabs ?? this.compactTabs;
+                this.debug = options.debug ?? this.debug;
+                this.projectExpr = options.projectExpr ?? this.projectExpr;
+            }
 
-            return { ...this, ...options };
+            if (this.projectExpr)
+            {
+                this.projectExprActual = new RegExp(
+                    this.projectExpr, "i");
+            }
         }
 
         public getColorForProject(projectName: string | null): string
@@ -119,9 +139,11 @@ namespace VSCodeSideTabs
                 /(^|,).+?(\.tab(?=\s|:|$))/g,
                 "$1 .hack--vertical-tab-container $2");
 
-            this.options = this.options.extend(options);
+            this.options.extend(options);
 
             this.tabSort = new TabSort(this.options);
+
+            this.debug("options", this.options);
         }
 
         // Attach and add new elements to the DOM.
@@ -581,6 +603,8 @@ namespace VSCodeSideTabs
         {
             const tabs = container.querySelectorAll<HTMLDivElement>(".tab");
             const newTabs: ITabDescription[] = [];
+            const options = this.options;
+            const projectExpr = options.projectExprActual;
 
             for (let i = 0; i < tabs.length; ++i)
             {
@@ -611,20 +635,21 @@ namespace VSCodeSideTabs
 
                 let project: string | null = null;
 
-                if (this.options.colorByProject || this.options.sortByProject)
+                if ((options.colorByProject || options.sortByProject) &&
+                    projectExpr != null)
                 {
-                    const projectResult = this.options.projectExpr.exec(title);
+                    const projectResult = projectExpr.exec(title);
                     project = projectResult ? projectResult[0] : null;
                 }
 
-                if (this.options.colorByProject)
+                if (options.colorByProject)
                 {
                     // If the tab is active and brightening is disabled, do
                     // not change the background color so that the active
                     // tab color is used instead.
                     if (!isActive || this.options.brightenActiveTab)
                     {
-                        newTab.style.backgroundColor = this.options
+                        newTab.style.backgroundColor = options
                             .getColorForProject(project);
                     }
                 }
@@ -640,7 +665,7 @@ namespace VSCodeSideTabs
                     tabType: tabType.toUpperCase()
                 };
 
-                if (this.options.showPin)
+                if (options.showPin)
                 {
                     const tabClose = newTab.querySelector(".tab-close");
 
@@ -1103,7 +1128,18 @@ namespace VSCodeSideTabs
 
     (function ()
     {
-        const sideTabs = new VSCodeSideTabs();
+        const settingsEl = document.getElementById("__hack_cdw_config");
+        let settings: any;
+
+        try {
+            settings = settingsEl && settingsEl.innerText
+                ? JSON.parse(decodeURI(settingsEl.innerText))
+                : null;
+        } catch (e) {
+            console.error("CDW: error parsing settings", e);
+        }
+
+        const sideTabs = new VSCodeSideTabs(settings);
         sideTabs.attach();
     })();
 }

@@ -73,8 +73,8 @@ export function activate(context: vscode.ExtensionContext): void
         }
 
         const injectHTML = `
-			<script>window.__hack_cdw_config = ${JSON.stringify(config)};</script>
-			<script src="file:///${cdwPath}"></script>`;
+			<span id="__hack_cdw_config" style="display: none;">${encodeURI(JSON.stringify(config))}</span>
+			<script src="file:///${cdwPath}" type="application/javascript"></script>`;
 
         return contents.replace(
             "</html>",
@@ -127,11 +127,11 @@ export function activate(context: vscode.ExtensionContext): void
     {
         fs.stat(bakfile, function (errBak, statsBak)
         {
-            if (errBak)
+            //if (errBak)
             {
                 // clean installation
                 cleanInstallFunc();
-                return;
+              //  return;
             }
 
             // check htmlFileBack's timestamp and compare it to the htmlFile's.

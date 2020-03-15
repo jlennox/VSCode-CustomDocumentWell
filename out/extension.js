@@ -49,8 +49,8 @@ function activate(context) {
             cdwPath = cdwPath.replace(/\\/g, "/");
         }
         const injectHTML = `
-			<script>window.__hack_cdw_config = ${JSON.stringify(config)};</script>
-			<script src="file:///${cdwPath}"></script>`;
+			<span id="__hack_cdw_config" style="display: none;">${encodeURI(JSON.stringify(config))}</span>
+			<script src="file:///${cdwPath}" type="application/javascript"></script>`;
         return contents.replace("</html>", `<!-- !! VSCODE-CDW-START !! -->${injectHTML}<!-- !! VSCODE-CDW-END !! --></html>`);
     }
     function mutateFile(cb) {
@@ -85,10 +85,11 @@ function activate(context) {
     }
     function installItem(bakfile, orfile, cleanInstallFunc) {
         fs.stat(bakfile, function (errBak, statsBak) {
-            if (errBak) {
+            //if (errBak)
+            {
                 // clean installation
                 cleanInstallFunc();
-                return;
+                //  return;
             }
             // check htmlFileBack's timestamp and compare it to the htmlFile's.
             fs.stat(orfile, function (errOr, statsOr) {

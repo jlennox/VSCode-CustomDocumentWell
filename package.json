@@ -14,7 +14,7 @@
 	"bugs": {
 		"url": "https://github.com/jlennox/VSCode-CustomDocumentWell/issues"
 	},
-	"version": "1.0.5",
+	"version": "1.1.0",
 	"publisher": "jlennox0115",
 	"engines": {
 		"vscode": "^1.42.0"
@@ -78,6 +78,11 @@
 					"description": "Show a pin to allow tabs to be pinned to the top.",
 					"type": "boolean",
 					"default": true
+				},
+				"custom_document_well.projectExpr": {
+					"description": "The expression to evaluate how to determine how a project path's splits. The absolute file path is tested.",
+					"type": "string",
+					"default": "(?:[^\\w]|^)src[/\\\\].+?[/\\\\]"
 				}
 			}
 		}
