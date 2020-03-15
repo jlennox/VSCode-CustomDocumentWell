@@ -73,6 +73,11 @@
 					"description": "Enable debug logging.",
 					"type": "boolean",
 					"default": false
+				},
+				"custom_document_well.showPin": {
+					"description": "Show a pin to allow tabs to be pinned to the top.",
+					"type": "boolean",
+					"default": true
 				}
 			}
 		}

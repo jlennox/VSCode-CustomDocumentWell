@@ -22,6 +22,7 @@ namespace VSCodeSideTabs
 
     interface IVSCodeSideTabsOptions
     {
+        showPin: boolean;
         colorByProject: boolean;
         sortByFileType: boolean;
         sortByProject: boolean;
@@ -33,13 +34,14 @@ namespace VSCodeSideTabs
 
     class VSCodeSideTabsOptions implements IVSCodeSideTabsOptions
     {
+        public showPin: boolean = true;
         public colorByProject: boolean = true;
         public sortByFileType: boolean = true;
         public sortByProject: boolean = true;
         public brightenActiveTab: boolean = true;
         public compactTabs: boolean = true;
         public debug: boolean = false;
-        public projectExpr: RegExp = /([^\w]|^)src[/\\].+?[/\\]/i;
+        public projectExpr: RegExp = /(?:[^\w]|^)src[/\\].+?[/\\]/i;
 
         private projectColors: { [name: string]: string } = {};
         private projectCount: number = 0;
@@ -86,6 +88,7 @@ namespace VSCodeSideTabs
         private requestedAnimationFrame: boolean = false;
         private nextFramePerformRelayout: boolean = false;
         private nextFrameReloadTabContainers: boolean = false;
+        private readonly pinned: { [path: string]: boolean } = {};
 
         public constructor(
             options: Partial<IVSCodeSideTabsOptions> | null = null
@@ -552,6 +555,26 @@ namespace VSCodeSideTabs
 
                 this.reloadTabsForContainer(this.realTabsContainers[i]);
             }
+
+            const pinned = this.currentTabs.filter(t => this.isPinned(t));
+
+            if (pinned.length > 0)
+            {
+                const hr = document.createElement("hr");
+                this.newTabContainer.prepend(hr);
+
+                const sorted = this.tabSort.sort(pinned);
+
+                for (let tabInfo of sorted)
+                {
+                    this.newTabContainer.insertBefore(tabInfo.newTab, hr);
+                }
+            }
+        }
+
+        private isPinned(tabInfo: ITabDescription): boolean
+        {
+            return tabInfo.path in this.pinned;
         }
 
         private reloadTabsForContainer(container: HTMLElement): void
@@ -606,7 +629,7 @@ namespace VSCodeSideTabs
                     }
                 }
 
-                newTabs.push({
+                const tabInfo = {
                     realTab: realTab,
                     newTab: newTab,
                     isActive: isActive,
@@ -615,14 +638,53 @@ namespace VSCodeSideTabs
                     path: title,
                     disposables: disposables,
                     tabType: tabType.toUpperCase()
-                });
+                };
+
+                if (this.options.showPin)
+                {
+                    const tabClose = newTab.querySelector(".tab-close");
+
+                    const pinTab = document.createElement("div");
+                    pinTab.style.margin = "auto 0";
+                    pinTab.style.width = "28px";
+                    pinTab.innerHTML = `
+                        <div class="monaco-action-bar animated">
+                            <ul class="actions-container" role="toolbar" aria-label="Tab actions">
+                                <li class="action-item" role="presentation">
+                                    <a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>
+                                </li>
+                            </ul>
+                        </div>`;
+
+                    disposables.push(Events.createDisposableEvent(
+                        "mouseup", pinTab?.querySelector("a"), () => {
+                            if (tabInfo.path in this.pinned)
+                            {
+                                delete this.pinned[tabInfo.path];
+                            }
+                            else
+                            {
+                                this.pinned[tabInfo.path] = true;
+                            }
+
+                            this.reloadTabContainers();
+                        }));
+
+                    tabClose?.parentElement?.insertBefore(pinTab, tabClose);
+                }
+
+                newTabs.push(tabInfo);
             }
 
-            const sorted = newTabs.sort((a, b) => this.tabSort.sort(a, b));
+            const sorted = this.tabSort.sort(newTabs);
 
             for (let tabInfo of sorted)
             {
-                this.newTabContainer.appendChild(tabInfo.newTab);
+                if (!this.isPinned(tabInfo))
+                {
+                    this.newTabContainer.appendChild(tabInfo.newTab);
+                }
+
                 this.currentTabs.push(tabInfo);
             }
         }
@@ -643,11 +705,15 @@ namespace VSCodeSideTabs
             drag: ["drag", "dragend", "dragenter", "dragexit", "dragleave", "dragover", "dragstart", "drop"]
         };
 
-        private static createDisposableEvent(
+        private static blankEvent = () => {};
+
+        public static createDisposableEvent(
             eventType: string,
-            element: HTMLElement,
+            element: HTMLElement | null,
             handler: any): IDisposableFn
         {
+            if (element == null) return Events.blankEvent;
+
             element.addEventListener(eventType, handler);
 
             return () => element.removeEventListener(eventType, handler);
@@ -927,7 +993,12 @@ namespace VSCodeSideTabs
         {
         }
 
-        public sort(a: ITabDescription, b: ITabDescription): number
+        public sort(tabs: ITabDescription[]): ITabDescription[]
+        {
+            return tabs.sort((a, b) => this.sortCore(a, b));
+        }
+
+        private sortCore(a: ITabDescription, b: ITabDescription): number
         {
             let sortResult = 0;
 

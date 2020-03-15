@@ -5,13 +5,14 @@ var VSCodeSideTabs;
 (function (VSCodeSideTabs_1) {
     class VSCodeSideTabsOptions {
         constructor() {
+            this.showPin = true;
             this.colorByProject = true;
             this.sortByFileType = true;
             this.sortByProject = true;
             this.brightenActiveTab = true;
             this.compactTabs = true;
             this.debug = false;
-            this.projectExpr = /([^\w]|^)src[/\\].+?[/\\]/i;
+            this.projectExpr = /(?:[^\w]|^)src[/\\].+?[/\\]/i;
             this.projectColors = {};
             this.projectCount = 0;
         }
@@ -48,6 +49,7 @@ var VSCodeSideTabs;
             this.requestedAnimationFrame = false;
             this.nextFramePerformRelayout = false;
             this.nextFrameReloadTabContainers = false;
+            this.pinned = {};
             this.realTabsContainers = document.querySelectorAll(".tabs-and-actions-container");
             this.tabChangeObserver = new MutationObserver(() => this.reloadTabs());
             this.newTabContainer = document.createElement("div");
@@ -128,7 +130,7 @@ var VSCodeSideTabs;
                         // This event is required for when two tabs are switched
                         // between. Otherwise the recreated overflow-guard is
                         // not fixed.
-                        if (!doTabReload && VSCodeDom.isMonacoEditor(element)) {
+                        if (!doTabReload && VSCodeDom.requiresDomRelayout(element)) {
                             doRelayout = true;
                         }
                         if (!doRelayout && VSCodeDom.isTabsContainer(element)) {
@@ -297,9 +299,26 @@ var VSCodeSideTabs;
                 // Some of the children elements also must be dynamically
                 // resized.
                 // .overlayWidgets is the container that holds the quick search.
-                const children = rightMost.el.querySelectorAll(".overflow-guard, .editor-scrollable, .overlayWidgets");
+                // .zone-widge belongs to the code peek view. Even though it's a
+                //     child of overlayWidgets it has its own width calculated.
+                const children = rightMost.el.querySelectorAll(".overlayWidgets, .zone-widget");
                 for (let i = 0; i < children.length; ++i) {
-                    Dom.updateStyle(children[i], "width", -this.sideTabSizePx);
+                    const el = children[i];
+                    Dom.updateStyle(el, "width", -this.sideTabSizePx);
+                }
+                const scrollables = rightMost.el.querySelectorAll(".editor-scrollable, .overflow-guard");
+                for (let i = 0; i < scrollables.length; ++i) {
+                    const el = scrollables[i];
+                    // If the element is inline, then its sizing is based
+                    // relative to its parent already. The `peek` preview
+                    // behaves this way.
+                    if (Dom.hasParent(el, "inline"))
+                        continue;
+                    Dom.updateStyle(el, "width", -this.sideTabSizePx);
+                }
+                const needParentChanges = document.querySelectorAll(".welcomePageContainer");
+                for (let i = 0; i < needParentChanges.length; ++i) {
+                    Dom.updateStyle(needParentChanges[i].parentElement, "width", -this.sideTabSizePx);
                 }
             }
             // If this is ever needed to work with variable side docking,
@@ -309,7 +328,7 @@ var VSCodeSideTabs;
             Dom.updateStyle(sidebar.activitybar, "left", -this.sideTabSizePx);
             Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
             // The sashes for non-subcontainered elements must also be adjusted for.
-            const sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
+            const sashContainer = Dom.getChild(this.newContainerDest, "sash-container");
             Dom.visitChildren(sashContainer, el => {
                 if (Dom.hasClass(el, "monaco-sash")) {
                     Dom.updateStyle(el, "left", -this.sideTabSizePx);
@@ -356,8 +375,21 @@ var VSCodeSideTabs;
                 }
                 this.reloadTabsForContainer(this.realTabsContainers[i]);
             }
+            const pinned = this.currentTabs.filter(t => this.isPinned(t));
+            if (pinned.length > 0) {
+                const hr = document.createElement("hr");
+                this.newTabContainer.prepend(hr);
+                const sorted = this.tabSort.sort(pinned);
+                for (let tabInfo of sorted) {
+                    this.newTabContainer.insertBefore(tabInfo.newTab, hr);
+                }
+            }
+        }
+        isPinned(tabInfo) {
+            return tabInfo.path in this.pinned;
         }
         reloadTabsForContainer(container) {
+            var _a, _b, _c;
             const tabs = container.querySelectorAll(".tab");
             const newTabs = [];
             for (let i = 0; i < tabs.length; ++i) {
@@ -392,7 +424,7 @@ var VSCodeSideTabs;
                             .getColorForProject(project);
                     }
                 }
-                newTabs.push({
+                const tabInfo = {
                     realTab: realTab,
                     newTab: newTab,
                     isActive: isActive,
@@ -401,11 +433,38 @@ var VSCodeSideTabs;
                     path: title,
                     disposables: disposables,
                     tabType: tabType.toUpperCase()
-                });
+                };
+                if (this.options.showPin) {
+                    const tabClose = newTab.querySelector(".tab-close");
+                    const pinTab = document.createElement("div");
+                    pinTab.style.margin = "auto 0";
+                    pinTab.style.width = "28px";
+                    pinTab.innerHTML = `
+                        <div class="monaco-action-bar animated">
+                            <ul class="actions-container" role="toolbar" aria-label="Tab actions">
+                                <li class="action-item" role="presentation">
+                                    <a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>
+                                </li>
+                            </ul>
+                        </div>`;
+                    disposables.push(Events.createDisposableEvent("mouseup", (_a = pinTab) === null || _a === void 0 ? void 0 : _a.querySelector("a"), () => {
+                        if (tabInfo.path in this.pinned) {
+                            delete this.pinned[tabInfo.path];
+                        }
+                        else {
+                            this.pinned[tabInfo.path] = true;
+                        }
+                        this.reloadTabContainers();
+                    }));
+                    (_c = (_b = tabClose) === null || _b === void 0 ? void 0 : _b.parentElement) === null || _c === void 0 ? void 0 : _c.insertBefore(pinTab, tabClose);
+                }
+                newTabs.push(tabInfo);
             }
-            const sorted = newTabs.sort((a, b) => this.tabSort.sort(a, b));
+            const sorted = this.tabSort.sort(newTabs);
             for (let tabInfo of sorted) {
-                this.newTabContainer.appendChild(tabInfo.newTab);
+                if (!this.isPinned(tabInfo)) {
+                    this.newTabContainer.appendChild(tabInfo.newTab);
+                }
                 this.currentTabs.push(tabInfo);
             }
         }
@@ -418,6 +477,8 @@ var VSCodeSideTabs;
     }
     class Events {
         static createDisposableEvent(eventType, element, handler) {
+            if (element == null)
+                return Events.blankEvent;
             element.addEventListener(eventType, handler);
             return () => element.removeEventListener(eventType, handler);
         }
@@ -444,7 +505,7 @@ var VSCodeSideTabs;
                     // event to never trigger. The tabs themselves detect clicks
                     // via mousedown/mouseup. The close button requires "click".
                     if ((e.type == "mousedown" || e.type == "mouseup") &&
-                        Dom.isChildOf(e.target, "tab-close")) {
+                        Dom.hasClosest(e.target, "tab-close")) {
                         setTimeout(() => actualDest.dispatchEvent(mouseEvent), 500);
                     }
                     else {
@@ -482,6 +543,7 @@ var VSCodeSideTabs;
         mouse: ["click", "mousedown", "mouseup", "contextmenu"],
         drag: ["drag", "dragend", "dragenter", "dragexit", "dragleave", "dragover", "dragstart", "drop"]
     };
+    Events.blankEvent = () => { };
     class VSCodeDom {
         /**
          * Returns the ".split-view-view" container for each code editor.
@@ -491,7 +553,7 @@ var VSCodeSideTabs;
             const instances = document.querySelectorAll(".editor-instance,[id=workbench\\.parts\\.panel]");
             for (let i = 0; i < instances.length; ++i) {
                 const instance = instances[i];
-                const splitView = Dom.getParentOf(instance, "split-view-view");
+                const splitView = Dom.getClosest(instance, "split-view-view");
                 if (splitView == null)
                     continue;
                 results.push(splitView);
@@ -502,8 +564,8 @@ var VSCodeSideTabs;
             const sidebar = document.getElementById("workbench.parts.sidebar");
             const activitybar = document.getElementById("workbench.parts.activitybar");
             return {
-                sidebar: Dom.getParentOf(sidebar, "split-view-view"),
-                activitybar: Dom.getParentOf(activitybar, "split-view-view")
+                sidebar: Dom.getClosest(sidebar, "split-view-view"),
+                activitybar: Dom.getClosest(activitybar, "split-view-view")
             };
         }
         // This feels more expensive than I'd like to run on every DOM
@@ -511,18 +573,31 @@ var VSCodeSideTabs;
         static isTabsContainer(el) {
             return el.querySelector(".tabs-and-actions-container") != null;
         }
-        static isMonacoEditor(el) {
-            return Dom.hasClass(el, "monaco-editor");
+        static requiresDomRelayout(el) {
+            if (!el || !el.classList)
+                return false;
+            for (let i = 0; i < el.classList.length; ++i) {
+                switch (el.classList[i]) {
+                    case "zone-widget":
+                    case "overlayWidgets":
+                    case "monaco-editor":
+                        return true;
+                }
+            }
+            return false;
         }
     }
     class Dom {
-        static isChildOf(el, klass) {
-            return Dom.getParentOf(el, klass) != null;
+        static hasClosest(el, klass) {
+            return Dom.getClosest(el, klass) != null;
+        }
+        static hasParent(el, klass) {
+            return Dom.getParent(el, klass) != null;
         }
         /**
-         * Returns the first parent that matches klass.
+         * Returns the first parent that matches klass. Returns `el` if matches.
          */
-        static getParentOf(el, klass) {
+        static getClosest(el, klass) {
             if (el == null)
                 return null;
             let curEl = el;
@@ -534,12 +609,21 @@ var VSCodeSideTabs;
             return null;
         }
         /**
-         * Returns the direct child that match klass.
+         * Returns the first parent that matches klass.
          */
-        static getChildOf(el, klass) {
+        static getParent(el, klass) {
             if (el == null)
                 return null;
-            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
+            return Dom.getClosest(el.parentElement, klass);
+        }
+        /**
+         * Returns the direct child that match klass.
+         */
+        static getChild(el, klass) {
+            var _a;
+            if (el == null)
+                return null;
+            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     return node;
             }
@@ -548,20 +632,22 @@ var VSCodeSideTabs;
         /**
         * Returns all direct child that match klass.
         */
-        static getChildrenOf(el, klass) {
+        static getChildren(el, klass) {
+            var _a;
             const results = [];
             if (el == null)
                 return results;
-            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     results.push(node);
             }
             return results;
         }
         static visitChildren(el, visitor) {
+            var _a;
             if (el == null)
                 return;
-            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
                 visitor(node);
             }
         }
@@ -604,7 +690,10 @@ var VSCodeSideTabs;
         constructor(options) {
             this.options = options;
         }
-        sort(a, b) {
+        sort(tabs) {
+            return tabs.sort((a, b) => this.sortCore(a, b));
+        }
+        sortCore(a, b) {
             let sortResult = 0;
             if (this.options.sortByProject && this.options.projectExpr) {
                 sortResult = TabSort.projectSort(a, b);
