@@ -214,7 +214,7 @@ namespace VSCodeSideTabs
                         // This event is required for when two tabs are switched
                         // between. Otherwise the recreated overflow-guard is
                         // not fixed.
-                        if (!doTabReload && VSCodeDom.isMonacoEditor(element))
+                        if (!doTabReload && VSCodeDom.requiresDomRelayout(element))
                         {
                             doRelayout = true;
                         }
@@ -436,13 +436,39 @@ namespace VSCodeSideTabs
                 // Some of the children elements also must be dynamically
                 // resized.
                 // .overlayWidgets is the container that holds the quick search.
+                // .zone-widge belongs to the code peek view. Even though it's a
+                //     child of overlayWidgets it has its own width calculated.
                 const children = rightMost.el.querySelectorAll(
-                    ".overflow-guard, .editor-scrollable, .overlayWidgets");
+                    ".overlayWidgets, .zone-widget");
 
                 for (let i = 0; i < children.length; ++i)
                 {
+                    const el = children[i] as HTMLElement;
+                    Dom.updateStyle(el, "width", -this.sideTabSizePx);
+                }
+
+                const scrollables = rightMost.el.querySelectorAll(
+                    ".editor-scrollable, .overflow-guard");
+
+                for (let i = 0; i < scrollables.length; ++i)
+                {
+                    const el = scrollables[i] as HTMLElement;
+
+                    // If the element is inline, then its sizing is based
+                    // relative to its parent already. The `peek` preview
+                    // behaves this way.
+                    if (Dom.hasParent(el, "inline")) continue;
+
+                    Dom.updateStyle(el, "width", -this.sideTabSizePx);
+                }
+
+                const needParentChanges = document.querySelectorAll(
+                    ".welcomePageContainer");
+
+                for (let i = 0; i < needParentChanges.length; ++i)
+                {
                     Dom.updateStyle(
-                        children[i] as HTMLElement, "width",
+                        needParentChanges[i].parentElement as HTMLElement, "width",
                         -this.sideTabSizePx);
                 }
             }
@@ -455,7 +481,7 @@ namespace VSCodeSideTabs
             Dom.updateStyle(sidebar.sidebar, "left", -this.sideTabSizePx);
 
             // The sashes for non-subcontainered elements must also be adjusted for.
-            const sashContainer = Dom.getChildOf(this.newContainerDest, "sash-container");
+            const sashContainer = Dom.getChild(this.newContainerDest, "sash-container");
 
             Dom.visitChildren(sashContainer, el =>
             {
@@ -665,7 +691,7 @@ namespace VSCodeSideTabs
                     // event to never trigger. The tabs themselves detect clicks
                     // via mousedown/mouseup. The close button requires "click".
                     if ((e.type == "mousedown" || e.type == "mouseup") &&
-                        Dom.isChildOf(e.target as HTMLElement, "tab-close"))
+                        Dom.hasClosest(e.target as HTMLElement, "tab-close"))
                     {
                         setTimeout(() => actualDest.dispatchEvent(mouseEvent), 500);
                     }
@@ -721,7 +747,7 @@ namespace VSCodeSideTabs
             for (let i = 0; i < instances.length; ++i)
             {
                 const instance = instances[i];
-                const splitView = Dom.getParentOf(instance, "split-view-view");
+                const splitView = Dom.getClosest(instance, "split-view-view");
                 if (splitView == null) continue;
                 results.push(splitView);
             }
@@ -739,8 +765,8 @@ namespace VSCodeSideTabs
             const activitybar = document.getElementById("workbench.parts.activitybar");
 
             return {
-                sidebar: Dom.getParentOf(sidebar, "split-view-view"),
-                activitybar: Dom.getParentOf(activitybar, "split-view-view")
+                sidebar: Dom.getClosest(sidebar, "split-view-view"),
+                activitybar: Dom.getClosest(activitybar, "split-view-view")
             };
         }
 
@@ -751,23 +777,41 @@ namespace VSCodeSideTabs
             return el.querySelector(".tabs-and-actions-container") != null;
         }
 
-        public static isMonacoEditor(el: HTMLElement): boolean
+        public static requiresDomRelayout(el: HTMLElement): boolean
         {
-            return Dom.hasClass(el, "monaco-editor");
+            if (!el || !el.classList) return false;
+
+            for (let i = 0; i < el.classList.length; ++i)
+            {
+                switch (el.classList[i])
+                {
+                    case "zone-widget":
+                    case "overlayWidgets":
+                    case "monaco-editor":
+                        return true;
+                }
+            }
+
+            return false;
         }
     }
 
     class Dom
     {
-        public static isChildOf(el: HTMLElement, klass: string): boolean
+        public static hasClosest(el: HTMLElement, klass: string): boolean
         {
-            return Dom.getParentOf(el, klass) != null;
+            return Dom.getClosest(el, klass) != null;
+        }
+
+        public static hasParent(el: HTMLElement, klass: string): boolean
+        {
+            return Dom.getParent(el, klass) != null;
         }
 
         /**
-         * Returns the first parent that matches klass.
+         * Returns the first parent that matches klass. Returns `el` if matches.
          */
-        public static getParentOf(el: HTMLElement | null, klass: string): HTMLElement | null
+        public static getClosest(el: HTMLElement | null, klass: string): HTMLElement | null
         {
             if (el == null) return null;
             let curEl: HTMLElement | null = el;
@@ -783,9 +827,18 @@ namespace VSCodeSideTabs
         }
 
         /**
+         * Returns the first parent that matches klass.
+         */
+        public static getParent(el: HTMLElement | null, klass: string): HTMLElement | null
+        {
+            if (el == null) return null;
+            return Dom.getClosest(el.parentElement, klass);
+        }
+
+        /**
          * Returns the direct child that match klass.
          */
-        public static getChildOf(el: HTMLElement | null, klass: string): HTMLElement | null
+        public static getChild(el: HTMLElement | null, klass: string): HTMLElement | null
         {
             if (el == null) return null;
 
@@ -802,7 +855,7 @@ namespace VSCodeSideTabs
         /**
         * Returns all direct child that match klass.
         */
-        public static getChildrenOf(el: HTMLElement | null, klass: string): HTMLElement[]
+        public static getChildren(el: HTMLElement | null, klass: string): HTMLElement[]
         {
             const results: HTMLElement[] = [];
             if (el == null) return results;
