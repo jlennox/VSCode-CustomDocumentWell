@@ -16,6 +16,7 @@ namespace VSCodeSideTabs
         text: string | null;
         project: string | null;
         path: string;
+        normalizedPath: string;
         disposables: IDisposableFn[];
         tabType: string;
     }
@@ -91,6 +92,12 @@ namespace VSCodeSideTabs
         }
     }
 
+    type PinnedLookup = { [path: string]: boolean };
+
+    interface IStorage {
+        pinned: PinnedLookup;
+    }
+
     class VSCodeSideTabs
     {
         private readonly currentTabs: ITabDescription[] = [];
@@ -108,7 +115,8 @@ namespace VSCodeSideTabs
         private requestedAnimationFrame: boolean = false;
         private nextFramePerformRelayout: boolean = false;
         private nextFrameReloadTabContainers: boolean = false;
-        private readonly pinned: { [path: string]: boolean } = {};
+        private readonly storage: Storage = new Storage();
+        private readonly pinned: PinnedLookup = {};
 
         public constructor(
             options: Partial<IVSCodeSideTabsOptions> | null = null
@@ -138,6 +146,12 @@ namespace VSCodeSideTabs
                 /\.tab(?=\s|:|$)/,
                 /(^|,).+?(\.tab(?=\s|:|$))/g,
                 "$1 .hack--vertical-tab-container $2");
+
+            const storage = this.storage.get();
+
+            for (let key in storage.pinned) {
+                this.pinned[key] = storage.pinned[key];
+            }
 
             this.options.extend(options);
 
@@ -612,6 +626,11 @@ namespace VSCodeSideTabs
 
                 const text = realTab.textContent;
                 const title = realTab.title || "";
+                // Inside the same project when using vscode remote, vscode will
+                // sometimes give files \ or /, depending on unknown variables,
+                // so this normalization has to take place or files in the same
+                // "project" will be seen as different.
+                const normalizedPath = title.replace(/\\/g, "/");
                 const isActive = realTab.classList.contains("active");
                 const newTab = realTab.cloneNode(true) as HTMLElement;
 
@@ -638,7 +657,7 @@ namespace VSCodeSideTabs
                 if ((options.colorByProject || options.sortByProject) &&
                     projectExpr != null)
                 {
-                    const projectResult = projectExpr.exec(title);
+                    const projectResult = projectExpr.exec(normalizedPath);
                     project = projectResult ? projectResult[0] : null;
                 }
 
@@ -654,13 +673,14 @@ namespace VSCodeSideTabs
                     }
                 }
 
-                const tabInfo = {
+                const tabInfo: ITabDescription = {
                     realTab: realTab,
                     newTab: newTab,
                     isActive: isActive,
                     text: text,
                     project: project,
                     path: title,
+                    normalizedPath: normalizedPath,
                     disposables: disposables,
                     tabType: tabType.toUpperCase()
                 };
@@ -683,14 +703,16 @@ namespace VSCodeSideTabs
 
                     disposables.push(Events.createDisposableEvent(
                         "mouseup", pinTab?.querySelector("a"), () => {
-                            if (tabInfo.path in this.pinned)
+                            if (tabInfo.normalizedPath in this.pinned)
                             {
-                                delete this.pinned[tabInfo.path];
+                                delete this.pinned[tabInfo.normalizedPath];
                             }
                             else
                             {
-                                this.pinned[tabInfo.path] = true;
+                                this.pinned[tabInfo.normalizedPath] = true;
                             }
+
+                            this.saveStorage();
 
                             this.reloadTabContainers();
                         }));
@@ -712,6 +734,15 @@ namespace VSCodeSideTabs
 
                 this.currentTabs.push(tabInfo);
             }
+        }
+
+        private saveStorage(): void
+        {
+            const store: IStorage = {
+                pinned: this.pinned
+            };
+
+            this.storage.save(store);
         }
 
         private debug(message?: any, ...optionalParams: any[]): void
@@ -1012,6 +1043,42 @@ namespace VSCodeSideTabs
         }
     }
 
+    class Storage
+    {
+        private static key = "__hack_vscdw";
+
+        public get(): IStorage
+        {
+            const defaultval = Storage.getDefault();
+            const stored = localStorage.getItem(Storage.key);
+            if (!stored) return defaultval;
+
+            try
+            {
+                return {
+                    ...defaultval,
+                    ...JSON.parse(stored) as IStorage
+                };
+            }
+            catch (e)
+            {
+                return defaultval;
+            }
+        }
+
+        public save(store: IStorage)
+        {
+            localStorage.setItem(Storage.key, JSON.stringify(store));
+        }
+
+        private static getDefault(): IStorage
+        {
+            return {
+                pinned: {}
+            };
+        }
+    }
+
     class TabSort
     {
         public constructor(private options: VSCodeSideTabsOptions)
@@ -1131,11 +1198,14 @@ namespace VSCodeSideTabs
         const settingsEl = document.getElementById("__hack_cdw_config");
         let settings: any;
 
-        try {
+        try
+        {
             settings = settingsEl && settingsEl.innerText
                 ? JSON.parse(decodeURI(settingsEl.innerText))
                 : null;
-        } catch (e) {
+        }
+        catch (e)
+        {
             console.error("CDW: error parsing settings", e);
         }
 

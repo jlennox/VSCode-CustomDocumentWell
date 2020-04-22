@@ -16,7 +16,7 @@ const events = require("events");
 const fs = require("fs");
 const messages_1 = require("./messages");
 function activate(context) {
-    var _a;
+    var _a, _b;
     process.on("uncaughtException", (error) => {
         if (/ENOENT|EACCES|EPERM/.test(error.code || "")) {
             vscode.window.showInformationMessage(messages_1.messages.admin);
@@ -24,7 +24,7 @@ function activate(context) {
         }
     });
     const eventEmitter = new events.EventEmitter();
-    const appPath = (_a = require === null || require === void 0 ? void 0 : require.main) === null || _a === void 0 ? void 0 : _a.filename;
+    const appPath = (_b = (_a = require) === null || _a === void 0 ? void 0 : _a.main) === null || _b === void 0 ? void 0 : _b.filename;
     if (!appPath) {
         console.error("Custom Document Well: Unable to locate application path.");
         return;
