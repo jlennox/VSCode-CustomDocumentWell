@@ -420,7 +420,7 @@ var VSCodeSideTabs;
             }
         }
         isPinned(tabInfo) {
-            return tabInfo.path in this.pinned;
+            return tabInfo.normalizedPath in this.pinned;
         }
         reloadTabsForContainer(container) {
             var _a, _b;

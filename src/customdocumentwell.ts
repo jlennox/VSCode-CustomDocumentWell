@@ -628,7 +628,7 @@ namespace VSCodeSideTabs
 
         private isPinned(tabInfo: ITabDescription): boolean
         {
-            return tabInfo.path in this.pinned;
+            return tabInfo.normalizedPath in this.pinned;
         }
 
         private reloadTabsForContainer(container: HTMLElement): void
