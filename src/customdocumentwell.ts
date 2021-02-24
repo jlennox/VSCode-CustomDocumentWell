@@ -134,7 +134,9 @@ namespace VSCodeSideTabs
             this.newTabContainer.style.position = "absolute";
             this.newTabContainer.style.top = "0";
             this.newTabContainer.style.left = `-${this.sideTabSize}`;
-            this.newTabContainer.style.overflowY = "auto";
+
+            // TODO: This really should be "auto" but we'd need to get this to be "height: 100%"
+            this.newTabContainer.style.overflowY = "hidden";
 
             // The borderRightColor is updated later in `stealTabContainerInfo`
             this.newTabContainer.style.borderRightWidth = "1px";
@@ -200,6 +202,10 @@ namespace VSCodeSideTabs
             }
 
             newContainerDest.classList.add("hack--container");
+
+            // FIX: This shouldn't be required? But without it the child
+            // vertical-tab-container does not show.
+            newContainerDest.style.overflow = "visible";
 
             this.newContainerDest = newContainerDest;
 
@@ -352,9 +358,21 @@ namespace VSCodeSideTabs
 
             if (this.options.compactTabs)
             {
+                const tabHeight = "25px";
                 newCssRules.push(`
+                    body .hack--vertical-tab-container .tab .monaco-icon-label,
+                    body .hack--vertical-tab-container .tab .monaco-icon-name-container {
+                        line-height: ${tabHeight} !important;
+                    }
+                    body .hack--vertical-tab-container .tab .tab-label {
+                        color: Black !important;
+                    }
+                    body .hack--vertical-tab-container .tab > .tab-actions .action-label {
+                        margin-right: 2px !important;
+                    }
                     body .hack--vertical-tab-container .tab {
-                        height: 25px;
+                        height: ${tabHeight} !important;
+                        border-bottom: none !important;
                     }`);
             }
 
@@ -634,6 +652,9 @@ namespace VSCodeSideTabs
                 const isActive = realTab.classList.contains("active");
                 const newTab = realTab.cloneNode(true) as HTMLElement;
 
+                // Causes all sorts of h-sizing problems.
+                newTab.classList.remove("sizing-fit");
+
                 const disposables = [];
 
                 for (let ev of Events.eventTypes.mouse)
@@ -687,19 +708,15 @@ namespace VSCodeSideTabs
 
                 if (options.showPin)
                 {
-                    const tabClose = newTab.querySelector(".tab-close");
+                    const tabClose = newTab.querySelector("[title='Close (Ctrl+F4)']")?.parentElement;
 
                     const pinTab = document.createElement("div");
                     pinTab.style.margin = "auto 0";
                     pinTab.style.width = "28px";
                     pinTab.innerHTML = `
-                        <div class="monaco-action-bar animated">
-                            <ul class="actions-container" role="toolbar" aria-label="Tab actions">
-                                <li class="action-item" role="presentation">
-                                    <a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>
-                                </li>
-                            </ul>
-                        </div>`;
+                        <li class="action-item" role="presentation">
+                            <a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>
+                        </li>`;
 
                     disposables.push(Events.createDisposableEvent(
                         "mouseup", pinTab?.querySelector("a"), () => {
@@ -1142,7 +1159,7 @@ namespace VSCodeSideTabs
 
         public getTabCssRules(): CSSStyleRule[]
         {
-            const isTabRuleExpr = /\.tab(?=\s|:|$)/;
+            const isTabRuleExpr = /\.tab\b/;
             const rules: CSSStyleRule[] = [];
 
             for (let i = 0; i < document.styleSheets.length; ++i)
@@ -1173,7 +1190,7 @@ namespace VSCodeSideTabs
             for (let rule of oldRules)
             {
                 newRulesText.push(rule.cssText.replace(
-                    /(^|,).+?(\.tab(?=\s|:|$))/g,
+                    /(^|,).+?(\.tab\b)/g,
                     "$1 .hack--vertical-tab-container $2"));
             }
 

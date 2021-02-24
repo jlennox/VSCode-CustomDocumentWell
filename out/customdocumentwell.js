@@ -20,14 +20,14 @@ var VSCodeSideTabs;
         extend(options) {
             var _a, _b, _c, _d, _e, _f, _g, _h;
             if (options) {
-                this.showPin = (_a = options.showPin, (_a !== null && _a !== void 0 ? _a : this.showPin));
-                this.colorByProject = (_b = options.colorByProject, (_b !== null && _b !== void 0 ? _b : this.colorByProject));
-                this.sortByFileType = (_c = options.sortByFileType, (_c !== null && _c !== void 0 ? _c : this.sortByFileType));
-                this.sortByProject = (_d = options.sortByProject, (_d !== null && _d !== void 0 ? _d : this.sortByProject));
-                this.brightenActiveTab = (_e = options.brightenActiveTab, (_e !== null && _e !== void 0 ? _e : this.brightenActiveTab));
-                this.compactTabs = (_f = options.compactTabs, (_f !== null && _f !== void 0 ? _f : this.compactTabs));
-                this.debug = (_g = options.debug, (_g !== null && _g !== void 0 ? _g : this.debug));
-                this.projectExpr = (_h = options.projectExpr, (_h !== null && _h !== void 0 ? _h : this.projectExpr));
+                this.showPin = (_a = options.showPin) !== null && _a !== void 0 ? _a : this.showPin;
+                this.colorByProject = (_b = options.colorByProject) !== null && _b !== void 0 ? _b : this.colorByProject;
+                this.sortByFileType = (_c = options.sortByFileType) !== null && _c !== void 0 ? _c : this.sortByFileType;
+                this.sortByProject = (_d = options.sortByProject) !== null && _d !== void 0 ? _d : this.sortByProject;
+                this.brightenActiveTab = (_e = options.brightenActiveTab) !== null && _e !== void 0 ? _e : this.brightenActiveTab;
+                this.compactTabs = (_f = options.compactTabs) !== null && _f !== void 0 ? _f : this.compactTabs;
+                this.debug = (_g = options.debug) !== null && _g !== void 0 ? _g : this.debug;
+                this.projectExpr = (_h = options.projectExpr) !== null && _h !== void 0 ? _h : this.projectExpr;
             }
             if (this.projectExpr) {
                 this.projectExprActual = new RegExp(this.projectExpr, "i");
@@ -71,7 +71,8 @@ var VSCodeSideTabs;
             this.newTabContainer.style.position = "absolute";
             this.newTabContainer.style.top = "0";
             this.newTabContainer.style.left = `-${this.sideTabSize}`;
-            this.newTabContainer.style.overflowY = "auto";
+            // TODO: This really should be "auto" but we'd need to get this to be "height: 100%"
+            this.newTabContainer.style.overflowY = "hidden";
             // The borderRightColor is updated later in `stealTabContainerInfo`
             this.newTabContainer.style.borderRightWidth = "1px";
             this.newTabContainer.style.borderRightStyle = "solid";
@@ -115,6 +116,9 @@ var VSCodeSideTabs;
                 return false;
             }
             newContainerDest.classList.add("hack--container");
+            // FIX: This shouldn't be required? But without it the child
+            // vertical-tab-container does not show.
+            newContainerDest.style.overflow = "visible";
             this.newContainerDest = newContainerDest;
             this.reloadTabContainers();
             this.cssRuleRewriter.insertFixedTabCssRules();
@@ -221,9 +225,21 @@ var VSCodeSideTabs;
         addCustomCssRules() {
             const newCssRules = [];
             if (this.options.compactTabs) {
+                const tabHeight = "25px";
                 newCssRules.push(`
+                    body .hack--vertical-tab-container .tab .monaco-icon-label,
+                    body .hack--vertical-tab-container .tab .monaco-icon-name-container {
+                        line-height: ${tabHeight} !important;
+                    }
+                    body .hack--vertical-tab-container .tab .tab-label {
+                        color: Black !important;
+                    }
+                    body .hack--vertical-tab-container .tab > .tab-actions .action-label {
+                        margin-right: 2px !important;
+                    }
                     body .hack--vertical-tab-container .tab {
-                        height: 25px;
+                        height: ${tabHeight} !important;
+                        border-bottom: none !important;
                     }`);
             }
             if (this.options.brightenActiveTab) {
@@ -407,7 +423,7 @@ var VSCodeSideTabs;
             return tabInfo.path in this.pinned;
         }
         reloadTabsForContainer(container) {
-            var _a, _b, _c;
+            var _a, _b;
             const tabs = container.querySelectorAll(".tab");
             const newTabs = [];
             const options = this.options;
@@ -416,8 +432,15 @@ var VSCodeSideTabs;
                 const realTab = tabs[i];
                 const text = realTab.textContent;
                 const title = realTab.title || "";
+                // Inside the same project when using vscode remote, vscode will
+                // sometimes give files \ or /, depending on unknown variables,
+                // so this normalization has to take place or files in the same
+                // "project" will be seen as different.
+                const normalizedPath = title.replace(/\\/g, "/");
                 const isActive = realTab.classList.contains("active");
                 const newTab = realTab.cloneNode(true);
+                // Causes all sorts of h-sizing problems.
+                newTab.classList.remove("sizing-fit");
                 const disposables = [];
                 for (let ev of Events.eventTypes.mouse) {
                     disposables.push(Events.forwardEvent(ev, newTab, realTab));
@@ -433,12 +456,7 @@ var VSCodeSideTabs;
                 let project = null;
                 if ((options.colorByProject || options.sortByProject) &&
                     projectExpr != null) {
-                    // Inside the same project when using vscode remote, vscode
-                    // will sometimes give files \ or /, depending on unknown
-                    // variables, so this normalization has to take place or
-                    // files in the same "project" will be seen as different.
-                    const normalizedTitle = title.replace(/\\/g, "/");
-                    const projectResult = projectExpr.exec(normalizedTitle);
+                    const projectResult = projectExpr.exec(normalizedPath);
                     project = projectResult ? projectResult[0] : null;
                 }
                 if (options.colorByProject) {
@@ -457,33 +475,30 @@ var VSCodeSideTabs;
                     text: text,
                     project: project,
                     path: title,
+                    normalizedPath: normalizedPath,
                     disposables: disposables,
                     tabType: tabType.toUpperCase()
                 };
                 if (options.showPin) {
-                    const tabClose = newTab.querySelector(".tab-close");
+                    const tabClose = (_a = newTab.querySelector("[title='Close (Ctrl+F4)']")) === null || _a === void 0 ? void 0 : _a.parentElement;
                     const pinTab = document.createElement("div");
                     pinTab.style.margin = "auto 0";
                     pinTab.style.width = "28px";
                     pinTab.innerHTML = `
-                        <div class="monaco-action-bar animated">
-                            <ul class="actions-container" role="toolbar" aria-label="Tab actions">
-                                <li class="action-item" role="presentation">
-                                    <a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>
-                                </li>
-                            </ul>
-                        </div>`;
-                    disposables.push(Events.createDisposableEvent("mouseup", (_a = pinTab) === null || _a === void 0 ? void 0 : _a.querySelector("a"), () => {
-                        if (tabInfo.path in this.pinned) {
-                            delete this.pinned[tabInfo.path];
+                        <li class="action-item" role="presentation">
+                            <a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>
+                        </li>`;
+                    disposables.push(Events.createDisposableEvent("mouseup", pinTab === null || pinTab === void 0 ? void 0 : pinTab.querySelector("a"), () => {
+                        if (tabInfo.normalizedPath in this.pinned) {
+                            delete this.pinned[tabInfo.normalizedPath];
                         }
                         else {
-                            this.pinned[tabInfo.path] = true;
+                            this.pinned[tabInfo.normalizedPath] = true;
                         }
                         this.saveStorage();
                         this.reloadTabContainers();
                     }));
-                    (_c = (_b = tabClose) === null || _b === void 0 ? void 0 : _b.parentElement) === null || _c === void 0 ? void 0 : _c.insertBefore(pinTab, tabClose);
+                    (_b = tabClose === null || tabClose === void 0 ? void 0 : tabClose.parentElement) === null || _b === void 0 ? void 0 : _b.insertBefore(pinTab, tabClose);
                 }
                 newTabs.push(tabInfo);
             }
@@ -653,10 +668,9 @@ var VSCodeSideTabs;
          * Returns the direct child that match klass.
          */
         static getChild(el, klass) {
-            var _a;
             if (el == null)
                 return null;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     return node;
             }
@@ -666,21 +680,19 @@ var VSCodeSideTabs;
         * Returns all direct child that match klass.
         */
         static getChildren(el, klass) {
-            var _a;
             const results = [];
             if (el == null)
                 return results;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 if (Dom.hasClass(node, klass))
                     results.push(node);
             }
             return results;
         }
         static visitChildren(el, visitor) {
-            var _a;
             if (el == null)
                 return;
-            for (let node = el.firstElementChild; node != null; node = (_a = node) === null || _a === void 0 ? void 0 : _a.nextElementSibling) {
+            for (let node = el.firstElementChild; node != null; node = node === null || node === void 0 ? void 0 : node.nextElementSibling) {
                 visitor(node);
             }
         }
@@ -794,7 +806,7 @@ var VSCodeSideTabs;
             this.rewriteRuleText = rewriteRuleText;
         }
         getTabCssRules() {
-            const isTabRuleExpr = /\.tab(?=\s|:|$)/;
+            const isTabRuleExpr = /\.tab\b/;
             const rules = [];
             for (let i = 0; i < document.styleSheets.length; ++i) {
                 const sheet = document.styleSheets[i];
@@ -813,7 +825,7 @@ var VSCodeSideTabs;
             const oldRules = this.getTabCssRules();
             const newRulesText = [];
             for (let rule of oldRules) {
-                newRulesText.push(rule.cssText.replace(/(^|,).+?(\.tab(?=\s|:|$))/g, "$1 .hack--vertical-tab-container $2"));
+                newRulesText.push(rule.cssText.replace(/(^|,).+?(\.tab\b)/g, "$1 .hack--vertical-tab-container $2"));
             }
             CssRuleRewrite.insertCssRules(this.id, newRulesText.join("\r\n"));
         }
