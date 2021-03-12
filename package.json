@@ -80,9 +80,14 @@
 					"default": true
 				},
 				"custom_document_well.projectExpr": {
-					"description": "The expression to evaluate how to determine how a project path's splits. The absolute file path is tested.",
+					"description": "The regex to determine how a project path's splits. This is used for \"sortByProject\" and \"colorByProject\". The absolute file path is tested.",
 					"type": "string",
 					"default": "(?:[^\\w]|^)src[/\\\\].+?[/\\\\]"
+				},
+				"custom_document_well.errorExpr": {
+					"description": "Any absolute path that matches this regex will be underlined red as a warning. Useful to prevent editing of files inside node_modules instead of sources. Empty disables.",
+					"type": "string",
+					"default": "node_module"
 				}
 			}
 		}

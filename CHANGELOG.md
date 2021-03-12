@@ -1,5 +1,9 @@
 # Change Log
 
+
+## ????
+* **Feature:** Ability to have an expression that causes tabs to be underlined when matched. Defaults to matching files in node_module directories.
+
 ## 1.2.1
 * **Feature:** Fix 1.53.2 support. Still requires manually editing the workbench.js to permit js injection, sadly.
 

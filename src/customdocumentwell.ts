@@ -19,6 +19,7 @@ namespace VSCodeSideTabs
         normalizedPath: string;
         disposables: IDisposableFn[];
         tabType: string;
+        isError: boolean;
     }
 
     interface IDisposableFn
@@ -36,6 +37,7 @@ namespace VSCodeSideTabs
         compactTabs: boolean;
         debug: boolean;
         projectExpr: string;
+        errorExpr: string;
     }
 
     class VSCodeSideTabsOptions implements IVSCodeSideTabsOptions
@@ -48,10 +50,12 @@ namespace VSCodeSideTabs
         public compactTabs: boolean = true;
         public debug: boolean = false;
         public projectExpr: string = "(?:[^\\w]|^)src[/\\\\].+?[/\\\\]";
+        public errorExpr: string = "node_modules";
 
         private projectColors: { [name: string]: string } = {};
         private projectCount: number = 0;
-        public projectExprActual: RegExp | null = null;
+        public projectExprActual?: RegExp;
+        public errorExprActual?: RegExp;
 
         private static colors: string[] = [
             "#8DA3C1", "#9D827B", "#C1AA66", "#869A87", "#C97E6C",
@@ -74,8 +78,11 @@ namespace VSCodeSideTabs
 
             if (this.projectExpr)
             {
-                this.projectExprActual = new RegExp(
-                    this.projectExpr, "i");
+                this.projectExprActual = new RegExp(this.projectExpr, "i");
+            }
+
+            if (this.errorExpr) {
+                this.errorExprActual = new RegExp(this.errorExpr, "i");
             }
         }
 
@@ -373,6 +380,9 @@ namespace VSCodeSideTabs
                     body .hack--vertical-tab-container .tab {
                         height: ${tabHeight} !important;
                         border-bottom: none !important;
+                    }
+                    body .hack--vertical-tab-container .tab.hack--is-error .label-name {
+                        text-decoration: red underline 3px !important;
                     }`);
             }
 
@@ -637,6 +647,7 @@ namespace VSCodeSideTabs
             const newTabs: ITabDescription[] = [];
             const options = this.options;
             const projectExpr = options.projectExprActual;
+            const errorExpr = options.errorExprActual;
 
             for (let i = 0; i < tabs.length; ++i)
             {
@@ -673,10 +684,13 @@ namespace VSCodeSideTabs
                     ? "unknown"
                     : title.substr(typeMatch + 1);
 
+                const isError = errorExpr != undefined &&
+                    errorExpr.test(normalizedPath);
+
                 let project: string | null = null;
 
                 if ((options.colorByProject || options.sortByProject) &&
-                    projectExpr != null)
+                    projectExpr != undefined)
                 {
                     const projectResult = projectExpr.exec(normalizedPath);
                     project = projectResult ? projectResult[0] : null;
@@ -694,6 +708,10 @@ namespace VSCodeSideTabs
                     }
                 }
 
+                if (isError) {
+                    newTab.classList.add("hack--is-error");
+                }
+
                 const tabInfo: ITabDescription = {
                     realTab: realTab,
                     newTab: newTab,
@@ -703,7 +721,8 @@ namespace VSCodeSideTabs
                     path: title,
                     normalizedPath: normalizedPath,
                     disposables: disposables,
-                    tabType: tabType.toUpperCase()
+                    tabType: tabType.toUpperCase(),
+                    isError: isError,
                 };
 
                 if (options.showPin)

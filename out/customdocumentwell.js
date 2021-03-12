@@ -13,9 +13,9 @@ var VSCodeSideTabs;
             this.compactTabs = true;
             this.debug = false;
             this.projectExpr = "(?:[^\\w]|^)src[/\\\\].+?[/\\\\]";
+            this.errorExpr = "node_modules";
             this.projectColors = {};
             this.projectCount = 0;
-            this.projectExprActual = null;
         }
         extend(options) {
             var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -31,6 +31,9 @@ var VSCodeSideTabs;
             }
             if (this.projectExpr) {
                 this.projectExprActual = new RegExp(this.projectExpr, "i");
+            }
+            if (this.errorExpr) {
+                this.errorExprActual = new RegExp(this.errorExpr, "i");
             }
         }
         getColorForProject(projectName) {
@@ -240,6 +243,9 @@ var VSCodeSideTabs;
                     body .hack--vertical-tab-container .tab {
                         height: ${tabHeight} !important;
                         border-bottom: none !important;
+                    }
+                    body .hack--vertical-tab-container .tab.hack--is-error .label-name {
+                        text-decoration: red underline 3px !important;
                     }`);
             }
             if (this.options.brightenActiveTab) {
@@ -428,6 +434,7 @@ var VSCodeSideTabs;
             const newTabs = [];
             const options = this.options;
             const projectExpr = options.projectExprActual;
+            const errorExpr = options.errorExprActual;
             for (let i = 0; i < tabs.length; ++i) {
                 const realTab = tabs[i];
                 const text = realTab.textContent;
@@ -453,9 +460,11 @@ var VSCodeSideTabs;
                 const tabType = typeMatch == -1
                     ? "unknown"
                     : title.substr(typeMatch + 1);
+                const isError = errorExpr != undefined &&
+                    errorExpr.test(normalizedPath);
                 let project = null;
                 if ((options.colorByProject || options.sortByProject) &&
-                    projectExpr != null) {
+                    projectExpr != undefined) {
                     const projectResult = projectExpr.exec(normalizedPath);
                     project = projectResult ? projectResult[0] : null;
                 }
@@ -468,6 +477,9 @@ var VSCodeSideTabs;
                             .getColorForProject(project);
                     }
                 }
+                if (isError) {
+                    newTab.classList.add("hack--is-error");
+                }
                 const tabInfo = {
                     realTab: realTab,
                     newTab: newTab,
@@ -477,7 +489,8 @@ var VSCodeSideTabs;
                     path: title,
                     normalizedPath: normalizedPath,
                     disposables: disposables,
-                    tabType: tabType.toUpperCase()
+                    tabType: tabType.toUpperCase(),
+                    isError: isError,
                 };
                 if (options.showPin) {
                     const tabClose = (_a = newTab.querySelector("[title='Close (Ctrl+F4)']")) === null || _a === void 0 ? void 0 : _a.parentElement;
