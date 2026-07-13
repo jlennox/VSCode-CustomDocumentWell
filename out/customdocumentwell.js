@@ -1,6 +1,7 @@
 "use strict";
 // MIT License
 // Copyright(c) 2020 Joseph Lennox
+console.log("CustomDocumentWell B");
 var VSCodeSideTabs;
 (function (VSCodeSideTabs_1) {
     class VSCodeSideTabsOptions {
@@ -12,13 +13,14 @@ var VSCodeSideTabs;
             this.brightenActiveTab = true;
             this.compactTabs = true;
             this.debug = false;
+            this.expandRustNames = true;
             this.projectExpr = "(?:[^\\w]|^)src[/\\\\].+?[/\\\\]";
-            this.errorExpr = "node_modules";
+            this.errorExpr = "node_modules|src-compile";
             this.projectColors = {};
             this.projectCount = 0;
         }
         extend(options) {
-            var _a, _b, _c, _d, _e, _f, _g, _h;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j;
             if (options) {
                 this.showPin = (_a = options.showPin) !== null && _a !== void 0 ? _a : this.showPin;
                 this.colorByProject = (_b = options.colorByProject) !== null && _b !== void 0 ? _b : this.colorByProject;
@@ -27,7 +29,8 @@ var VSCodeSideTabs;
                 this.brightenActiveTab = (_e = options.brightenActiveTab) !== null && _e !== void 0 ? _e : this.brightenActiveTab;
                 this.compactTabs = (_f = options.compactTabs) !== null && _f !== void 0 ? _f : this.compactTabs;
                 this.debug = (_g = options.debug) !== null && _g !== void 0 ? _g : this.debug;
-                this.projectExpr = (_h = options.projectExpr) !== null && _h !== void 0 ? _h : this.projectExpr;
+                this.expandRustNames = (_h = options.expandRustNames) !== null && _h !== void 0 ? _h : this.expandRustNames;
+                this.projectExpr = (_j = options.projectExpr) !== null && _j !== void 0 ? _j : this.projectExpr;
             }
             if (this.projectExpr) {
                 this.projectExprActual = new RegExp(this.projectExpr, "i");
@@ -69,7 +72,7 @@ var VSCodeSideTabs;
             this.realTabsContainers = document.querySelectorAll(".tabs-and-actions-container");
             this.tabChangeObserver = new MutationObserver(() => this.reloadTabs());
             this.newTabContainer = document.createElement("div");
-            this.newTabContainer.className = "hack--vertical-tab-container";
+            this.newTabContainer.className = "show-file-icons hack--vertical-tab-container";
             this.newTabContainer.style.width = this.sideTabSize;
             this.newTabContainer.style.position = "absolute";
             this.newTabContainer.style.top = "0";
@@ -82,7 +85,7 @@ var VSCodeSideTabs;
             this.newTabContainer.style.borderRightColor = "var(--title-border-bottom-color)";
             this.cssRuleRewriter = new CssRuleRewrite("", /\.tab(?=\s|:|$)/, /(^|,).+?(\.tab(?=\s|:|$))/g, "$1 .hack--vertical-tab-container $2");
             const storage = this.storage.get();
-            for (let key in storage.pinned) {
+            for (const key in storage.pinned) {
                 this.pinned[key] = storage.pinned[key];
             }
             this.options.extend(options);
@@ -93,7 +96,7 @@ var VSCodeSideTabs;
         attach() {
             // If the DOM is not yet ready, try attaching again in a moment.
             if (!this.attachCore()) {
-                setTimeout(() => this.attach(), 100);
+                setTimeout(() => this.attach(), 1000);
             }
         }
         attachCore() {
@@ -114,8 +117,7 @@ var VSCodeSideTabs;
                 .querySelector(".split-view-container")) === null || _a === void 0 ? void 0 : _a.querySelector(".split-view-container")) === null || _b === void 0 ? void 0 : _b.parentElement;
             // It's not present enough to load yet. Keep re-entering this method
             // until success.
-            if (newContainerDest == null ||
-                newContainerDest.firstChild == null) {
+            if (newContainerDest == null || newContainerDest.firstChild == null) {
                 return false;
             }
             newContainerDest.classList.add("hack--container");
@@ -145,7 +147,7 @@ var VSCodeSideTabs;
                 function isDone() {
                     return doTabReload && doRelayout;
                 }
-                for (let mut of mutations) {
+                for (const mut of mutations) {
                     if (isDone())
                         break;
                     for (let i = 0; i < mut.addedNodes.length && !isDone(); ++i) {
@@ -182,7 +184,7 @@ var VSCodeSideTabs;
             });
             // Observe for layout events. This is the editors moving around.
             const relayoutObserver = new MutationObserver((mutations) => {
-                for (let mut of mutations) {
+                for (const mut of mutations) {
                     if (!mut.target)
                         continue;
                     if (mut.target.nodeType != Node.ELEMENT_NODE)
@@ -272,7 +274,7 @@ var VSCodeSideTabs;
         stealTabContainerInfo(realTabContainer) {
             if (this.hasStolenTabContainerInfo)
                 return;
-            if (!realTabContainer || !realTabContainer.parentElement)
+            if (realTabContainer == null || realTabContainer.parentElement == null)
                 return;
             const parent = realTabContainer.parentElement;
             const backgroundColor = parent.style.backgroundColor;
@@ -313,7 +315,7 @@ var VSCodeSideTabs;
             // determined by editors having a common `top` value.
             // The right most editor on a per row basis needs its width reduced
             // by 300px.
-            for (let editor of editors) {
+            for (const editor of editors) {
                 const top = editor.style.top;
                 const left = editor.style.left
                     ? parseInt(editor.style.left, 10)
@@ -326,7 +328,7 @@ var VSCodeSideTabs;
                     left: left
                 };
             }
-            for (let key in rightMostEditors) {
+            for (const key in rightMostEditors) {
                 const rightMost = rightMostEditors[key];
                 // Panels that do not explicity set a width use an inherited
                 // width of 100%.
@@ -336,8 +338,7 @@ var VSCodeSideTabs;
                 else {
                     Dom.updateStyle(rightMost.el, "width", -this.sideTabSizePx);
                 }
-                // Some of the children elements also must be dynamically
-                // resized.
+                // Some of the children elements also must be dynamically resized.
                 // .overlayWidgets is the container that holds the quick search.
                 // .zone-widge belongs to the code peek view. Even though it's a
                 //     child of overlayWidgets it has its own width calculated.
@@ -420,7 +421,7 @@ var VSCodeSideTabs;
                 const hr = document.createElement("hr");
                 this.newTabContainer.prepend(hr);
                 const sorted = this.tabSort.sort(pinned);
-                for (let tabInfo of sorted) {
+                for (const tabInfo of sorted) {
                     this.newTabContainer.insertBefore(tabInfo.newTab, hr);
                 }
             }
@@ -435,26 +436,42 @@ var VSCodeSideTabs;
             const options = this.options;
             const projectExpr = options.projectExprActual;
             const errorExpr = options.errorExprActual;
+            function getFullPath(tab) {
+                var _a;
+                // This no longer seems used? Joe 7/13/2026.
+                if (tab.title != null && tab.title != "")
+                    return tab.title;
+                const iconLabel = tab.querySelector(".monaco-icon-label");
+                const label = (_a = iconLabel === null || iconLabel === void 0 ? void 0 : iconLabel.getAttribute("aria-label")) !== null && _a !== void 0 ? _a : "";
+                if (label === "")
+                    return null;
+                const labelParts = label.split(" • ");
+                return labelParts[0].trim();
+            }
+            function normalizePath(path) {
+                return path.replace(/\\/g, "/");
+            }
             for (let i = 0; i < tabs.length; ++i) {
                 const realTab = tabs[i];
                 const text = realTab.textContent;
-                const title = realTab.title || "";
+                const title = (_a = getFullPath(realTab)) !== null && _a !== void 0 ? _a : "";
                 // Inside the same project when using vscode remote, vscode will
                 // sometimes give files \ or /, depending on unknown variables,
                 // so this normalization has to take place or files in the same
                 // "project" will be seen as different.
-                const normalizedPath = title.replace(/\\/g, "/");
+                const normalizedPath = normalizePath(title);
                 const isActive = realTab.classList.contains("active");
                 const newTab = realTab.cloneNode(true);
                 // Causes all sorts of h-sizing problems.
                 newTab.classList.remove("sizing-fit");
                 const disposables = [];
-                for (let ev of Events.eventTypes.mouse) {
+                for (const ev of Events.eventTypes.mouse) {
                     disposables.push(Events.forwardEvent(ev, newTab, realTab));
                 }
-                for (let ev of Events.eventTypes.drag) {
+                for (const ev of Events.eventTypes.drag) {
                     disposables.push(Events.forwardEvent(ev, newTab, realTab));
                 }
+                console.log("titletitletitle", { title, normalizedPath, expandRustNames: options.expandRustNames });
                 // Get just the file extension if present.
                 const typeMatch = title.lastIndexOf(".");
                 const tabType = typeMatch == -1
@@ -463,8 +480,7 @@ var VSCodeSideTabs;
                 const isError = errorExpr != undefined &&
                     errorExpr.test(normalizedPath);
                 let project = null;
-                if ((options.colorByProject || options.sortByProject) &&
-                    projectExpr != undefined) {
+                if ((options.colorByProject || options.sortByProject) && projectExpr != undefined) {
                     const projectResult = projectExpr.exec(normalizedPath);
                     project = projectResult ? projectResult[0] : null;
                 }
@@ -473,8 +489,7 @@ var VSCodeSideTabs;
                     // not change the background color so that the active
                     // tab color is used instead.
                     if (!isActive || this.options.brightenActiveTab) {
-                        newTab.style.backgroundColor = options
-                            .getColorForProject(project);
+                        newTab.style.backgroundColor = options.getColorForProject(project);
                     }
                 }
                 if (isError) {
@@ -492,16 +507,26 @@ var VSCodeSideTabs;
                     tabType: tabType.toUpperCase(),
                     isError: isError,
                 };
+                if (options.expandRustNames) {
+                    const matches = /([^\/]+?)\/src\/(main|lib|mod)\.rs$/i.exec(normalizedPath);
+                    const labelElement = newTab.querySelector(".label-description");
+                    console.log("expandRustNames", { matches, labelElement });
+                    if (matches != null && labelElement != null) {
+                        labelElement.textContent = matches[1];
+                    }
+                }
                 if (options.showPin) {
-                    const tabClose = (_a = newTab.querySelector("[title='Close (Ctrl+F4)']")) === null || _a === void 0 ? void 0 : _a.parentElement;
-                    const pinTab = document.createElement("div");
-                    pinTab.style.margin = "auto 0";
-                    pinTab.style.width = "28px";
-                    pinTab.innerHTML = `
-                        <li class="action-item" role="presentation">
-                            <a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>
-                        </li>`;
-                    disposables.push(Events.createDisposableEvent("mouseup", pinTab === null || pinTab === void 0 ? void 0 : pinTab.querySelector("a"), () => {
+                    const tabClose = newTab.querySelector("[title='Close (Ctrl+F4)']");
+                    if (tabClose == null) {
+                        console.error("Unable to find close button in tab.", tabClose);
+                    }
+                    const pinTab = document.createElement("li");
+                    pinTab.className = "action-item";
+                    pinTab.setAttribute("action-item", "presentation");
+                    pinTab.innerHTML = `<a class="action-label codicon codicon-pin" role="button" tabindex="0" title="Pin"></a>`;
+                    disposables.push(Events.createDisposableEvent("mouseup", pinTab === null || pinTab === void 0 ? void 0 : pinTab.querySelector("a"), (event) => {
+                        if (event.button !== 0)
+                            return;
                         if (tabInfo.normalizedPath in this.pinned) {
                             delete this.pinned[tabInfo.normalizedPath];
                         }
@@ -516,7 +541,7 @@ var VSCodeSideTabs;
                 newTabs.push(tabInfo);
             }
             const sorted = this.tabSort.sort(newTabs);
-            for (let tabInfo of sorted) {
+            for (const tabInfo of sorted) {
                 if (!this.isPinned(tabInfo)) {
                     this.newTabContainer.appendChild(tabInfo.newTab);
                 }
@@ -537,6 +562,7 @@ var VSCodeSideTabs;
         }
     }
     class Events {
+        // TODO: Type handler better.
         static createDisposableEvent(eventType, element, handler) {
             if (element == null)
                 return Events.blankEvent;
@@ -549,7 +575,7 @@ var VSCodeSideTabs;
                 // the event was triggered on in our synthetic DOM. This isn't
                 // the most accurate method but it should be good enough.
                 const targetElement = e.target;
-                if (!targetElement || !targetElement.className) {
+                if (targetElement == null || targetElement.className == null) {
                     return destination;
                 }
                 const querySelector = "." + targetElement.className.replace(/ /g, '.');
@@ -635,7 +661,7 @@ var VSCodeSideTabs;
             return el.querySelector(".tabs-and-actions-container") != null;
         }
         static requiresDomRelayout(el) {
-            if (!el || !el.classList)
+            if (el == null || el.classList == null)
                 return false;
             for (let i = 0; i < el.classList.length; ++i) {
                 switch (el.classList[i]) {
@@ -710,7 +736,7 @@ var VSCodeSideTabs;
             }
         }
         static hasClass(el, klass) {
-            if (!el)
+            if (el == null)
                 return false;
             return el.classList && el.classList.contains(klass);
         }
@@ -722,10 +748,10 @@ var VSCodeSideTabs;
          * update the value, and this code runs again, it would be a net -600.
          */
         static updateStyle(el, style, adjustment) {
-            if (!el || !el.style)
+            if (el == null || el.style == null)
                 return;
             const val = el.style[style];
-            if (!val || val.length < 3)
+            if (val == null || val.length < 3)
                 return;
             // only modify pixel values.
             if (val[val.length - 2] != "p")
@@ -754,6 +780,7 @@ var VSCodeSideTabs;
                 return Object.assign(Object.assign({}, defaultval), JSON.parse(stored));
             }
             catch (e) {
+                console.error("CDW: error parsing storage.", e);
                 return defaultval;
             }
         }
@@ -837,7 +864,7 @@ var VSCodeSideTabs;
                 return;
             const oldRules = this.getTabCssRules();
             const newRulesText = [];
-            for (let rule of oldRules) {
+            for (const rule of oldRules) {
                 newRulesText.push(rule.cssText.replace(/(^|,).+?(\.tab\b)/g, "$1 .hack--vertical-tab-container $2"));
             }
             CssRuleRewrite.insertCssRules(this.id, newRulesText.join("\r\n"));
@@ -861,7 +888,7 @@ var VSCodeSideTabs;
                 : null;
         }
         catch (e) {
-            console.error("CDW: error parsing settings", e);
+            console.error("CDW: error parsing settings.", e);
         }
         const sideTabs = new VSCodeSideTabs(settings);
         sideTabs.attach();

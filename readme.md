@@ -21,6 +21,21 @@ Supported functionality:
 2. `View` -> `Command Palette`, "Install Custom Document Well" `{enter}`
 3. Restart VS Code. **It may need to be restarted as an administrator!** See notes for [Custom CSS and JS Loader](https://marketplace.visualstudio.com/items?itemName=be5invis.vscode-custom-css)
 
+ARG:
+
+Edit: C:\Users\joe\Dropbox\vscode\resources\app\out\vs\code\electron-sandbox\workbench\workbench.html
+Nuke the CORS
+Change path to: ../../../../../../../data/extensions/jlennox0115.custom-document-well-1.1.0/out/customdocumentwell.js
+Update with: cp ~/dropbox/_code/VSCode-CustomDocumentWell/out/* /mnt/c/Users/joe/Dropbox/vscode/data/extensions/jlennox0115.custom-document-well-1.1.0/out/
+
+```
+	<!-- Startup (do not modify order of script tags!) -->
+	<script src="workbench.js"></script>
+<!-- !! VSCODE-CDW-START !! -->
+			<span id="__hack_cdw_config" style="display: none;">%7B%22colorByProject%22:true,%22sortByFileType%22:false,%22sortByProject%22:true,%22brightenActiveTab%22:true,%22compactTabs%22:true,%22debug%22:false,%22showPin%22:true,%22projectExpr%22:%22(?:(?:%5B%5E%5C%5Cw%5D%7C%5E)src/.+?/)%7C(?:.+?webrtc_src/)%7C(?:.+?discord_common/(?:ex%7Cjs%7Cpy)/.+?/)%7C(?:.+?discord_.+?/)%22,%22errorExpr%22:%22node_modules%7Csrc-compile%22%7D</span>
+			<script src="../../../../../../../data/extensions/jlennox0115.custom-document-well-1.1.0/out/customdocumentwell.js" type="application/javascript"></script><!-- !! VSCODE-CDW-END !! --></html>
+```
+
 Alternatively, this can be more easily run non-persistant on a single instance:
 1. Open developer tools in VS Code: `Help` -> `Toggle Developer Tools`
 2. Paste the contents of [customdocumentwell.js](https://github.com/jlennox/VSCode-CustomDocumentWell/blob/master/out/customdocumentwell.js) into the Console. Press enter.

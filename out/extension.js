@@ -10,13 +10,15 @@
 // The MIT License(MIT)
 // Copyright(c) 2020 Joseph Lennox
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.activate = activate;
+exports.deactivate = deactivate;
 const vscode = require("vscode");
 const path = require("path");
 const events = require("events");
 const fs = require("fs");
 const messages_1 = require("./messages");
 function activate(context) {
-    var _a, _b;
+    var _a;
     process.on("uncaughtException", (error) => {
         if (/ENOENT|EACCES|EPERM/.test(error.code || "")) {
             vscode.window.showInformationMessage(messages_1.messages.admin);
@@ -24,7 +26,7 @@ function activate(context) {
         }
     });
     const eventEmitter = new events.EventEmitter();
-    const appPath = (_b = (_a = require) === null || _a === void 0 ? void 0 : _a.main) === null || _b === void 0 ? void 0 : _b.filename;
+    const appPath = (_a = require === null || require === void 0 ? void 0 : require.main) === null || _a === void 0 ? void 0 : _a.filename;
     if (!appPath) {
         console.error("Custom Document Well: Unable to locate application path.");
         return;
@@ -182,8 +184,6 @@ function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand("extension.uninstallCustomDocumentWell", fUninstall));
     context.subscriptions.push(vscode.commands.registerCommand("extension.updateCustomDocumentWell", fUpdate));
 }
-exports.activate = activate;
 // this method is called when your extension is deactivated
 function deactivate() { }
-exports.deactivate = deactivate;
 //# sourceMappingURL=extension.js.map

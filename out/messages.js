@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.messages = void 0;
 exports.messages = {
     admin: 'Run VS Code with admin privileges so the changes can be applied.',
     enabled: 'Custom Document Well enabled. Restart to take effect. If Code complains about it is corrupted, CLICK DON\'T SHOW AGAIN. See README for more detail.',
